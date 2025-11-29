@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand, CommandFactory, error::ErrorKind};
+use clap::{Parser, Subcommand};
+use gridskipper::{diff_images, detect_antialiased_pixels, GridSkipperError};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about="A command line tool for determining differences between two images.", long_about = None)]
@@ -18,9 +19,9 @@ enum Commands {
         /// to the first image file path.
         right_side: String,
     },
-    /// Check if a single image file exists
+    /// Detect antialiased pixels within an image
     Detect {
-        /// The image file path to check for existence
+        /// The image file path to check for antialiased pixels
         path: String,
     },
 }
@@ -28,46 +29,47 @@ enum Commands {
 fn main() {
     let args = Args::parse();
 
-    match args.command {
+    let result = match args.command {
         Commands::Diff { left_side, right_side } => {
-            handle_diff(&left_side, &right_side);
+            handle_diff(&left_side, &right_side)
         },
         Commands::Detect { path } => {
-            handle_detect(&path);
+            handle_detect(&path)
         },
+    };
+
+    if let Err(e) = result {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
     }
 }
 
-fn handle_diff(left_side: &str, right_side: &str) {
-    // Check if both file paths are the same
-    if left_side.eq(right_side) {
-        let mut cmd = Args::command();
-        cmd.error(ErrorKind::InvalidValue, "Error: Both file paths cannot be the same")
-            .exit();
+fn handle_diff(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
+    match diff_images(left_side, right_side) {
+        Ok(result) => {
+            if result.identical {
+                println!("Images are identical");
+            } else {
+                println!("Images differ:");
+                println!("  Different pixels: {}", result.diff_pixels);
+                println!("  Difference percentage: {:.2}%", result.diff_percentage);
+            }
+            println!("Note: gridskipper diff functionality is not yet fully implemented. Please check back later.");
+            Ok(())
+        },
+        Err(e) => Err(e),
     }
-
-    // Check to make sure the files both exist
-    if !std::path::Path::new(left_side).exists() {
-        let mut cmd = Args::command();
-        cmd.error(ErrorKind::InvalidValue, "Error: Left side file does not exist")
-            .exit();
-    }
-    if !std::path::Path::new(right_side).exists() {
-        let mut cmd = Args::command();
-        cmd.error(ErrorKind::InvalidValue, "Error: Right side file does not exist")
-            .exit();
-    }
-
-    println!("gridskipper diff functionality is not yet implemented. Please check back later.");
 }
 
-fn handle_detect(path: &str) {
-    // Check if the file exists
-    if !std::path::Path::new(path).exists() {
-        let mut cmd = Args::command();
-        cmd.error(ErrorKind::InvalidValue, "Error: File does not exist")
-            .exit();
+fn handle_detect(path: &str) -> Result<(), GridSkipperError> {
+    match detect_antialiased_pixels(path) {
+        Ok(result) => {
+            println!("Antialiasing detection results for '{}':", path);
+            println!("  Antialiased pixels: {}", result.antialiased_pixels);
+            println!("  Antialiased percentage: {:.2}%", result.antialiased_percentage);
+            println!("Note: gridskipper detect functionality is not yet fully implemented. Please check back later.");
+            Ok(())
+        },
+        Err(e) => Err(e),
     }
-
-    println!("gridskipper detect functionality is not yet implemented. Please check back later.");
 }
