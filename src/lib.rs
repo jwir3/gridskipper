@@ -6,79 +6,20 @@
 //! - Compare two images for differences
 //! - Detect antialiased pixels within an image
 //!
-//! ## Usage
-//!
-//! ```rust
-//! use gridskipper::{diff_images, detect_antialiased_pixels, GridSkipperError};
-//!
-//! // Compare two images
-//! match diff_images("image1.png", "image2.png") {
-//!     Ok(result) => println!("Diff result: {:?}", result),
-//!     Err(e) => eprintln!("Error: {}", e),
-//! }
-//!
-//! // Detect antialiased pixels
-//! match detect_antialiased_pixels("image.png") {
-//!     Ok(result) => println!("Detection result: {:?}", result),
-//!     Err(e) => eprintln!("Error: {}", e),
-//! }
 //! ```
+pub mod base;
+pub mod error;
+pub mod results;
+pub mod stats;
+pub mod ui;
+pub mod utils;
 
-use std::error::Error;
-use std::fmt;
+use crate::base::{ImageLocation, PixelNeighbors};
+use crate::error::GridSkipperError;
+use crate::results::{AntialiasDetectionResult, DiffResult};
+use crate::utils::{compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels};
+use image::{DynamicImage, GrayImage};
 use std::path::Path;
-
-/// Custom error type for GridSkipper operations
-#[derive(Debug)]
-pub enum GridSkipperError {
-    /// Error when file does not exist
-    FileNotFound(String),
-    /// Error when both file paths are identical
-    IdenticalPaths,
-    /// Error during image processing
-    ImageProcessing(String),
-    /// IO error
-    Io(std::io::Error),
-}
-
-impl fmt::Display for GridSkipperError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GridSkipperError::FileNotFound(path) => write!(f, "File not found: {}", path),
-            GridSkipperError::IdenticalPaths => write!(f, "Both file paths cannot be the same"),
-            GridSkipperError::ImageProcessing(msg) => write!(f, "Image processing error: {}", msg),
-            GridSkipperError::Io(e) => write!(f, "IO error: {}", e),
-        }
-    }
-}
-
-impl Error for GridSkipperError {}
-
-impl From<std::io::Error> for GridSkipperError {
-    fn from(error: std::io::Error) -> Self {
-        GridSkipperError::Io(error)
-    }
-}
-
-/// Result of comparing two images
-#[derive(Debug)]
-pub struct DiffResult {
-    /// Whether the images are identical
-    pub identical: bool,
-    /// Number of different pixels found
-    pub diff_pixels: u32,
-    /// Percentage of different pixels
-    pub diff_percentage: f64,
-}
-
-/// Result of antialiasing detection
-#[derive(Debug)]
-pub struct AntialiasDetectionResult {
-    /// Number of antialiased pixels detected
-    pub antialiased_pixels: u32,
-    /// Percentage of antialiased pixels
-    pub antialiased_percentage: f64,
-}
 
 /// Validates that file paths are different and both files exist
 pub fn validate_file_paths(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
@@ -149,40 +90,155 @@ pub fn diff_images(left_side: &str, right_side: &str) -> Result<DiffResult, Grid
     })
 }
 
-/// Detect antialiased pixels within an image
+pub fn detect_antialiased_pixels_vysniauskas_rgba8(
+    image: DynamicImage,
+    ground_truth_image_opt: Option<DynamicImage>,
+) -> Result<AntialiasDetectionResult, GridSkipperError> {
+    // Convert to RGBA first to ensure 4 bytes per pixel
+    let rgba_image = image.to_rgba8();
+    let bytes = rgba_image.as_raw();
+
+    // Convert the image to grayscale so that we can compare brightness values.
+    let grayscale_image: GrayImage = image.grayscale().into();
+
+    // Convert ground truth image once outside the loop
+    let ground_truth_bytes = ground_truth_image_opt
+        .as_ref()
+        .map(|img| img.to_rgba8().into_raw());
+
+    let mut result = AntialiasDetectionResult::default();
+
+    for y in 0..image.height() {
+        'center_pixel: for x in 0..image.width() {
+            let pixel_idx: usize = ((image.width() * y + x) << 2) as usize;
+            let mut _considered_pixel_is_aa_in_gt = false;
+
+            // if we have a ground truth image, and the pixels are different
+            // at this location between the ground truth and the image under consideration
+            // then we have an AA pixel in the image under consideration
+            if let Some(ref gt_bytes) = ground_truth_bytes {
+                let ground_truth_pixel_res: Result<[u8; 4], _> =
+                    gt_bytes[pixel_idx..pixel_idx + 4].try_into();
+                if let Ok(ground_truth_pixel) = ground_truth_pixel_res {
+                    let pixel: [u8; 4] = bytes[pixel_idx..pixel_idx + 4].try_into().unwrap();
+                    if ground_truth_pixel != pixel {
+                        // This is an AA pixel in the image under consideration
+                        result.num_ground_truth_antialiased_pixels += 1;
+                        _considered_pixel_is_aa_in_gt = true;
+                    }
+                } else {
+                    return Err(GridSkipperError::ImageProcessing(
+                        "Failed to extract pixel data for ground truth image".to_string(),
+                    ));
+                }
+            }
+
+            let neighbors = get_neighbors_respect_image_bounds(
+                x as i32,
+                y as i32,
+                image.width(),
+                image.height(),
+            );
+
+            // TODO_jwir3: This is questionable. What if we are the top left corner or bottom right corner? Should we
+            //             still consider the pixel as having only a single zero since we can't evaluate its neighbors?
+            let mut zeroes = if x == neighbors.left
+                || x == neighbors.right
+                || y == neighbors.top
+                || y == neighbors.bottom
+            {
+                1
+            } else {
+                0
+            };
+
+            let mut min = 0;
+            let mut max = 0;
+            let mut min_x = 0;
+            let mut max_x = 0;
+            let mut min_y = 0;
+            let mut max_y = 0;
+
+            // We now iterate through 8 adjacent pixels, looking for differences in brightness.
+            for nx in neighbors.left..neighbors.right + 1 {
+                for ny in neighbors.top..neighbors.bottom + 1 {
+                    if nx == x && ny == y {
+                        continue;
+                    }
+
+                    // Calculate the brightness difference between the current pixel and center pixel.
+                    // This assumes that the image is grayscale and that the pixel data is originally in RGBA format.
+                    let delta = compute_brightness_delta_grayscale(&grayscale_image, x, y, nx, ny);
+
+                    if delta == 0 {
+                        zeroes += 1;
+                        if zeroes > 2 {
+                            // This is not an antialiased pixel by the Vyšniauskas method.
+                            continue 'center_pixel;
+                        }
+                    } else if delta < min {
+                        // We want to remember the darkest pixel.
+                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
+                        // or darkest pixel?
+                        min = delta;
+                        min_x = x;
+                        min_y = y;
+                    } else if delta > max {
+                        // We also want to remember the brightest pixel.
+                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
+                        // or darkest pixel?
+                        max = delta;
+                        max_x = x;
+                        max_y = y;
+                    }
+
+                    // A pixel cannot be anti-aliasing via this method if there are not adjacent pixels that
+                    // are both darker and brighter than this center pixel.
+                    if min == 0 || max == 0 {
+                        continue 'center_pixel;
+                    }
+
+                    // Finally, we want to check if the darkest or brightest pixel has 3+ equal siblings. If it does,
+                    // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
+                    // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
+                    // local brightness landscape).
+                    if has_at_least_three_equal_adjacent_pixels(&grayscale_image, min_x, min_y)
+                        || has_at_least_three_equal_adjacent_pixels(&grayscale_image, max_x, max_y)
+                    {
+                        result.antialiased_pixels.push(ImageLocation { x: x, y: y });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Retrieve the indices of neighboring pixels in an image, given a center pixel. Respects image boundaries so that
+/// the indices are within the image dimensions.
 ///
 /// # Arguments
 ///
-/// * `path` - Path to the image file to analyze
-///
-/// # Returns
-///
-/// Returns an `AntialiasResult` containing information about antialiased pixels found,
-/// or a `GridSkipperError` if validation fails or image processing encounters an error.
-///
-/// # Example
-///
-/// ```rust
-/// use gridskipper::detect_antialiased_pixels;
-///
-/// match detect_antialiased_pixels("image.png") {
-///     Ok(result) => {
-///         println!("Found {} antialiased pixels ({}%)",
-///                 result.antialiased_pixels, result.antialiased_percentage);
-///     },
-///     Err(e) => eprintln!("Error: {}", e),
-/// }
-/// ```
-pub fn detect_antialiased_pixels(path: &str) -> Result<AntialiasDetectionResult, GridSkipperError> {
-    // Validate input
-    validate_single_file_path(path)?;
+/// Returns:
+/// - `PixelNeighbors`: A structure containing the indices of the neighboring pixels, respecting image boundaries.
+pub fn get_neighbors_respect_image_bounds(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> PixelNeighbors {
+    let x0 = std::cmp::max(x - 1, 0);
+    let y0 = std::cmp::max(y - 1, 0);
+    let x2 = std::cmp::min(x + 1, width as i32 - 1);
+    let y2 = std::cmp::min(y + 1, height as i32 - 1);
 
-    // TODO: Implement actual antialiasing detection logic
-    // This is a placeholder implementation
-    Ok(AntialiasDetectionResult {
-        antialiased_pixels: 0,
-        antialiased_percentage: 0.0,
-    })
+    PixelNeighbors {
+        left: x0 as u32,
+        right: x2 as u32,
+        top: y0 as u32,
+        bottom: y2 as u32,
+    }
 }
 
 #[cfg(test)]
@@ -199,5 +255,24 @@ mod tests {
     fn test_file_not_found_error() {
         let result = validate_single_file_path("nonexistent.png");
         assert!(matches!(result, Err(GridSkipperError::FileNotFound(_))));
+    }
+
+    #[test]
+    fn test_ground_truth_detection() {
+        // Open the files
+        let ground_truth_image =
+            image::open("data/images/no-aa/lowercase-b-noto-serif-noAa.png").unwrap();
+        let image_under_consideration =
+            image::open("data/images/analytic-aa/lowercase-b-noto-serif-aa.png").unwrap();
+
+        // Detect ground truth antialiasing
+        let result = detect_antialiased_pixels_vysniauskas_rgba8(
+            ground_truth_image,
+            Some(image_under_consideration),
+        );
+        assert!(matches!(result, Ok(_)));
+
+        let unwrapped_result = result.unwrap();
+        assert_eq!(unwrapped_result.num_ground_truth_antialiased_pixels, 793);
     }
 }
