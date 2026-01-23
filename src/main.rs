@@ -90,13 +90,10 @@ fn handle_detect(
     without_aa_path: &str,
     output_dir: &str,
 ) -> Result<(), GridSkipperError> {
-    let stats: bool;
     let image_without_aa;
     if !without_aa_path.is_empty() && Path::exists(Path::new(without_aa_path)) {
-        stats = true;
         image_without_aa = Some(ImageReader::open(without_aa_path)?.decode()?);
     } else {
-        stats = false;
         image_without_aa = None;
     }
 
@@ -115,6 +112,12 @@ fn handle_detect(
     println!("{}", "====================".bold());
     println!(
         "{} {}",
+        "Total Pixels:".bold(),
+        detection_result.number_pixels.to_string().bold()
+    );
+
+    println!(
+        "{} {}",
         "Detected Antialiased Pixels:".bold(),
         detection_result
             .num_antialiased_pixels
@@ -123,11 +126,12 @@ fn handle_detect(
             .bold()
     );
 
-    if stats {
+    let stats_opt = detection_result.statistics;
+    if let Some(stats) = stats_opt {
         println!(
             "{} {}",
             "Ground Truth Antialiased Pixels:".bold(),
-            detection_result
+            stats
                 .num_ground_truth_antialiased_pixels
                 .to_string()
                 .green()
@@ -137,54 +141,47 @@ fn handle_detect(
         println!(
             "{} {}",
             "True Positives:".bold(),
-            detection_result
-                .num_true_positives
-                .to_string()
-                .green()
-                .bold()
+            stats.num_true_positives.to_string().green().bold()
         );
 
         println!(
             "{} {}",
             "False Positives:".bold(),
-            detection_result
-                .num_false_positives
-                .to_string()
-                .green()
-                .bold()
+            stats.num_false_positives.to_string().green().bold()
         );
 
         println!(
             "{} {}",
             "False Negatives:".bold(),
-            detection_result
-                .num_false_negatives
-                .to_string()
-                .green()
-                .bold()
+            stats.num_false_negatives.to_string().green().bold()
         );
 
-        let precision_score = calculate_precision_score(&detection_result);
-        let recall_score = calculate_recall_score(&detection_result);
-        let f1_score = calculate_f1_score(precision_score, recall_score);
+        let precision_score_opt = calculate_precision_score(&detection_result);
+        if let Some(precision_score) = precision_score_opt {
+            println!(
+                "{} {}",
+                "Precision Score:".bold(),
+                get_colored_text(precision_score, 0.95, 0.9)
+            );
+        }
 
-        println!(
-            "{} {}",
-            "Precision Score:".bold(),
-            get_colored_text(precision_score, 0.95, 0.9)
-        );
+        let recall_score_opt = calculate_recall_score(&detection_result);
+        if let Some(recall_score) = recall_score_opt {
+            println!(
+                "{} {}",
+                "Recall Score:".bold(),
+                get_colored_text(recall_score, 0.95, 0.9)
+            );
+        }
 
-        println!(
-            "{} {}",
-            "Recall Score:".bold(),
-            get_colored_text(recall_score, 0.95, 0.9)
-        );
-
-        println!(
-            "{} {}",
-            "F1 Score:".bold(),
-            get_colored_text(f1_score, 0.95, 0.9),
-        );
+        let f1_score_opt = calculate_f1_score(precision_score_opt, recall_score_opt);
+        if let Some(f1_score) = f1_score_opt {
+            println!(
+                "{} {}",
+                "F1 Score:".bold(),
+                get_colored_text(f1_score, 0.95, 0.9),
+            );
+        }
     }
 
     Ok(())

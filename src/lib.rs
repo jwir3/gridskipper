@@ -17,6 +17,7 @@ pub mod utils;
 use crate::base::{ImageLocation, PixelNeighbors};
 use crate::error::GridSkipperError;
 use crate::results::{AntialiasDetectionResult, DiffResult};
+use crate::stats::RawAAStatistics;
 use crate::utils::{compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels};
 use image::{DynamicImage, GrayImage};
 use std::path::Path;
@@ -90,6 +91,23 @@ pub fn diff_images(left_side: &str, right_side: &str) -> Result<DiffResult, Grid
     })
 }
 
+/// Detect antialiased pixels using Vyšniauskas' algorithm (2009).
+///
+/// The original algorithm is described in the paper:
+///   - Antialiased pixel and intensity slope detector, V. Vyšniauskas (2009).
+///
+/// This implementation takes a full color image, encoded as 32-bit (8 bit color channels) RGBA, and converts it to
+/// grayscale using the `image.grayscale()` method, which is equivalent to `Luma` images. It then applies the algorithm
+/// described in Vyšniauskas' paper and first implemented in `pixelmatch`, to detect antialiased pixels. These pixels
+/// are then returned as an `AntialiasDetectionResult`.
+///
+/// Parameters:
+/// - `image`: The input image to detect antialiased pixels in.
+/// - `ground_truth_image_opt`: An optional ground truth image to compare against, for inclusion of statistics, such as
+///    the number of false-positives and false-negatives.
+///
+/// Returns:
+/// - `Result<AntialiasDetectionResult, GridSkipperError>`: The result of the antialias detection.
 pub fn detect_antialiased_pixels_vysniauskas_rgba8(
     image: DynamicImage,
     ground_truth_image_opt: Option<DynamicImage>,
@@ -101,17 +119,21 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
     // Convert the image to grayscale so that we can compare brightness values.
     let grayscale_image: GrayImage = image.grayscale().into();
 
+    if ground_truth_image_opt.is_some() {}
     // Convert ground truth image once outside the loop
     let ground_truth_bytes = ground_truth_image_opt
         .as_ref()
         .map(|img| img.to_rgba8().into_raw());
 
+    let mut statistics = RawAAStatistics::default();
     let mut result = AntialiasDetectionResult::default();
 
     for y in 0..image.height() {
         'center_pixel: for x in 0..image.width() {
             let pixel_idx: usize = ((image.width() * y + x) << 2) as usize;
-            let mut _considered_pixel_is_aa_in_gt = false;
+            let mut considered_pixel_is_aa_in_gt = false;
+
+            result.number_pixels += 1;
 
             // if we have a ground truth image, and the pixels are different
             // at this location between the ground truth and the image under consideration
@@ -123,8 +145,8 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
                     let pixel: [u8; 4] = bytes[pixel_idx..pixel_idx + 4].try_into().unwrap();
                     if ground_truth_pixel != pixel {
                         // This is an AA pixel in the image under consideration
-                        result.num_ground_truth_antialiased_pixels += 1;
-                        _considered_pixel_is_aa_in_gt = true;
+                        statistics.num_ground_truth_antialiased_pixels += 1;
+                        considered_pixel_is_aa_in_gt = true;
                     }
                 } else {
                     return Err(GridSkipperError::ImageProcessing(
@@ -174,6 +196,12 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
                         zeroes += 1;
                         if zeroes > 2 {
                             // This is not an antialiased pixel by the Vyšniauskas method.
+                            if considered_pixel_is_aa_in_gt {
+                                // We have a false negative because the pixel is actually antialiased in the
+                                // ground truth image.
+                                statistics.num_false_negatives += 1;
+                            }
+
                             continue 'center_pixel;
                         }
                     } else if delta < min {
@@ -181,35 +209,49 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
                         // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
                         // or darkest pixel?
                         min = delta;
-                        min_x = x;
-                        min_y = y;
+                        min_x = nx;
+                        min_y = ny;
                     } else if delta > max {
                         // We also want to remember the brightest pixel.
                         // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
                         // or darkest pixel?
                         max = delta;
-                        max_x = x;
-                        max_y = y;
-                    }
-
-                    // A pixel cannot be anti-aliasing via this method if there are not adjacent pixels that
-                    // are both darker and brighter than this center pixel.
-                    if min == 0 || max == 0 {
-                        continue 'center_pixel;
-                    }
-
-                    // Finally, we want to check if the darkest or brightest pixel has 3+ equal siblings. If it does,
-                    // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
-                    // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
-                    // local brightness landscape).
-                    if has_at_least_three_equal_adjacent_pixels(&grayscale_image, min_x, min_y)
-                        || has_at_least_three_equal_adjacent_pixels(&grayscale_image, max_x, max_y)
-                    {
-                        result.antialiased_pixels.push(ImageLocation { x: x, y: y });
+                        max_x = nx;
+                        max_y = ny;
                     }
                 }
             }
+
+            // A pixel cannot be anti-aliasing via this method if there are not adjacent pixels that
+            // are both darker and brighter than this center pixel.
+            if min == 0 || max == 0 {
+                continue 'center_pixel;
+            }
+
+            // Finally, we want to check if the darkest or brightest pixel has 3+ equal siblings. If it does,
+            // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
+            // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
+            // local brightness landscape).
+            if has_at_least_three_equal_adjacent_pixels(&grayscale_image, min_x, min_y)
+                || has_at_least_three_equal_adjacent_pixels(&grayscale_image, max_x, max_y)
+            {
+                result.antialiased_pixels.push(ImageLocation { x: x, y: y });
+                result.num_antialiased_pixels += 1;
+
+                if considered_pixel_is_aa_in_gt {
+                    statistics.num_true_positives += 1;
+                } else {
+                    // We have a false positive because the pixel is NOT antialiased in the ground truth image.
+                    statistics.num_false_positives += 1;
+                }
+            }
         }
+    }
+
+    if let Some(ref _gt_bytes) = ground_truth_bytes {
+        result.statistics = Some(statistics);
+    } else {
+        result.statistics = None
     }
 
     Ok(result)
@@ -273,6 +315,8 @@ mod tests {
         assert!(matches!(result, Ok(_)));
 
         let unwrapped_result = result.unwrap();
-        assert_eq!(unwrapped_result.num_ground_truth_antialiased_pixels, 793);
+        let stats = unwrapped_result.statistics;
+        assert!(stats.is_some());
+        assert_eq!(stats.unwrap().num_ground_truth_antialiased_pixels, 793);
     }
 }

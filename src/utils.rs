@@ -83,31 +83,74 @@ pub fn compute_brightness_delta_grayscale(
 pub fn has_at_least_three_equal_adjacent_pixels(image: &GrayImage, x: u32, y: u32) -> bool {
     let pixel_neighbors =
         get_neighbors_respect_image_bounds(x as i32, y as i32, image.width(), image.height());
-    let mut same_pixel_count = 0;
-    for ny in pixel_neighbors.top..pixel_neighbors.bottom {
-        for nx in pixel_neighbors.left..pixel_neighbors.right {
-            let pixel1 = image.get_pixel(nx, ny);
-            let pixel2 = image.get_pixel(x, y);
-            if pixel1 == pixel2 {
-                same_pixel_count += 1;
-            }
+    // We add a bonus match if we're on an edge to account for a reduced constraint when we don't have enough data.
+    let mut same_pixel_count = if pixel_neighbors.left == x
+        || pixel_neighbors.right == x
+        || pixel_neighbors.top == y
+        || pixel_neighbors.bottom == y
+    {
+        1
+    } else {
+        0
+    };
 
-            if same_pixel_count >= 3 {
-                return true;
+    for ny in pixel_neighbors.top..pixel_neighbors.bottom + 1 {
+        for nx in pixel_neighbors.left..pixel_neighbors.right + 1 {
+            if nx != x || ny != y {
+                let pixel1 = image.get_pixel(nx, ny);
+                let pixel2 = image.get_pixel(x, y);
+                if pixel1 == pixel2 {
+                    same_pixel_count += 1;
+                }
+
+                if same_pixel_count > 2 {
+                    return true;
+                }
             }
         }
     }
 
-    return same_pixel_count >= 3;
+    return same_pixel_count > 2;
 }
 
 #[cfg(test)]
 pub mod tests {
     use image::{GrayImage, Luma};
 
-    use crate::utils::{
-        compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels,
+    use crate::{
+        get_neighbors_respect_image_bounds,
+        utils::{compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels},
     };
+
+    #[test]
+    fn test_get_neighbors_respect_image_bounds_3x3_center() {
+        let neighbors = get_neighbors_respect_image_bounds(1, 1, 3, 3);
+
+        assert_eq!(neighbors.top, 0);
+        assert_eq!(neighbors.bottom, 2);
+        assert_eq!(neighbors.left, 0);
+        assert_eq!(neighbors.right, 2);
+    }
+
+    #[test]
+    fn test_get_neighbors_respect_image_bounds_3x3_top_left() {
+        let neighbors = get_neighbors_respect_image_bounds(0, 0, 3, 3);
+
+        assert_eq!(neighbors.top, 0);
+        assert_eq!(neighbors.bottom, 1);
+        assert_eq!(neighbors.left, 0);
+        assert_eq!(neighbors.right, 1);
+    }
+
+    #[test]
+    fn test_get_neighbors_respect_image_bounds_3x3_bottom_right() {
+        let neighbors = get_neighbors_respect_image_bounds(2, 2, 3, 3);
+
+        assert_eq!(neighbors.top, 1);
+        assert_eq!(neighbors.bottom, 2);
+        assert_eq!(neighbors.left, 1);
+        assert_eq!(neighbors.right, 2);
+    }
 
     #[test]
     fn test_compute_brightness_delta_grayscale() {

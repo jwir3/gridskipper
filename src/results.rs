@@ -1,4 +1,4 @@
-use crate::base::ImageLocation;
+use crate::{base::ImageLocation, stats::RawAAStatistics};
 
 /// Result of comparing two images
 #[derive(Debug)]
@@ -14,36 +14,28 @@ pub struct DiffResult {
 /// Result of antialiasing detection
 #[derive(Debug)]
 pub struct AntialiasDetectionResult {
-    /// Number of pixels in the image without antialiasing that are different in the image with antialiasing
-    pub num_ground_truth_antialiased_pixels: u64,
+    /// Total number of pixels in the image that were processed by the algorithm.
+    pub number_pixels: u64,
 
-    /// Number of antialiased pixels detected
+    /// Number of antialiased pixels detected by the algorithm
+    /// we're currently running.
     pub num_antialiased_pixels: u64,
-
-    /// Number of true positives
-    pub num_true_positives: u64,
-
-    /// Number of false positives. This is the number of pixels that were identified as antialiased but are not antialiased
-    /// in the ground truth image
-    pub num_false_positives: u64,
-
-    /// Number of false negatives. This is the number of pixels that are antialiased in the ground truth image but were not
-    /// identified as antialiased
-    pub num_false_negatives: u64,
 
     /// A list of antialiased pixel locations
     pub antialiased_pixels: Vec<ImageLocation>,
+
+    /// Statistics collected about the antialiasing detection algorithm, if they can be computed. They are only able to
+    /// be computed if a raw image (without antialiasing) was provided.
+    pub statistics: Option<RawAAStatistics>,
 }
 
 impl Default for AntialiasDetectionResult {
     fn default() -> Self {
         Self {
-            num_ground_truth_antialiased_pixels: 0,
             num_antialiased_pixels: 0,
-            num_true_positives: 0,
-            num_false_positives: 0,
-            num_false_negatives: 0,
+            statistics: None,
             antialiased_pixels: Vec::new(),
+            number_pixels: 0,
         }
     }
 }
