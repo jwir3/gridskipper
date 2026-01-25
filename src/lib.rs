@@ -84,11 +84,7 @@ pub fn diff_images(left_side: &str, right_side: &str) -> Result<DiffResult, Grid
 
     // TODO: Implement actual image comparison logic
     // This is a placeholder implementation
-    Ok(DiffResult {
-        identical: false,
-        diff_pixels: 0,
-        diff_percentage: 0.0,
-    })
+    Ok(DiffResult::default())
 }
 
 /// Detect antialiased pixels using Vyšniauskas' algorithm (2009).
@@ -104,7 +100,7 @@ pub fn diff_images(left_side: &str, right_side: &str) -> Result<DiffResult, Grid
 /// Parameters:
 /// - `image`: The input image to detect antialiased pixels in.
 /// - `ground_truth_image_opt`: An optional ground truth image to compare against, for inclusion of statistics, such as
-///    the number of false-positives and false-negatives.
+///   the number of false-positives and false-negatives.
 ///
 /// Returns:
 /// - `Result<AntialiasDetectionResult, GridSkipperError>`: The result of the antialias detection.
@@ -235,7 +231,7 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
             if has_at_least_three_equal_adjacent_pixels(&grayscale_image, min_x, min_y)
                 || has_at_least_three_equal_adjacent_pixels(&grayscale_image, max_x, max_y)
             {
-                result.antialiased_pixels.push(ImageLocation { x: x, y: y });
+                result.antialiased_pixels.push(ImageLocation { x, y });
                 result.num_antialiased_pixels += 1;
 
                 if considered_pixel_is_aa_in_gt {
@@ -285,12 +281,41 @@ pub fn get_neighbors_respect_image_bounds(
 
 #[cfg(test)]
 mod tests {
+    use crate::stats::{calculate_f1_score, calculate_precision_score, calculate_recall_score};
+    use crate::utils::nearly_equal;
+
     use super::*;
 
     #[test]
-    fn test_identical_paths_error() {
+    fn test_validate_file_paths_identical_paths_error() {
         let result = validate_file_paths("same.png", "same.png");
         assert!(matches!(result, Err(GridSkipperError::IdenticalPaths)));
+    }
+
+    #[test]
+    fn test_validate_file_paths_one_side_valid() {
+        let result1 = validate_file_paths(
+            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
+            "same.png",
+        );
+
+        let result2 = validate_file_paths(
+            "same.png",
+            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
+        );
+
+        assert!(matches!(result1, Err(GridSkipperError::FileNotFound(_))));
+        assert!(matches!(result2, Err(GridSkipperError::FileNotFound(_))));
+    }
+
+    #[test]
+    fn test_validate_file_paths_both_sides_valid() {
+        let result = validate_file_paths(
+            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
+            "data/images/no-aa/lowercase-b-noto-serif-noaa.png",
+        );
+
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -300,8 +325,34 @@ mod tests {
     }
 
     #[test]
-    fn test_ground_truth_detection() {
-        // Open the files
+    fn test_validate_single_file_path_exists() {
+        let result =
+            validate_single_file_path("data/images/analytic-aa/lowercase-b-noto-serif-aa.png");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_diff_images_happy_path() {
+        let diff_result = diff_images(
+            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
+            "data/images/no-aa/lowercase-b-noto-serif-noaa.png",
+        );
+
+        assert!(diff_result.is_ok());
+        let diff = diff_result.unwrap();
+
+        assert_eq!(
+            diff,
+            DiffResult {
+                identical: true,
+                diff_percentage: 0.0,
+                diff_pixels: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_lowercase_b_notosans_against_ground_truth() {
         let ground_truth_image =
             image::open("data/images/no-aa/lowercase-b-noto-serif-noAa.png").unwrap();
         let image_under_consideration =
@@ -309,14 +360,92 @@ mod tests {
 
         // Detect ground truth antialiasing
         let result = detect_antialiased_pixels_vysniauskas_rgba8(
-            ground_truth_image,
-            Some(image_under_consideration),
+            image_under_consideration,
+            Some(ground_truth_image),
         );
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let unwrapped_result = result.unwrap();
-        let stats = unwrapped_result.statistics;
-        assert!(stats.is_some());
-        assert_eq!(stats.unwrap().num_ground_truth_antialiased_pixels, 793);
+        let stats_opt = unwrapped_result.statistics;
+        assert!(stats_opt.is_some());
+
+        let stats = stats_opt.unwrap();
+        assert_eq!(stats.num_ground_truth_antialiased_pixels, 793);
+        assert_eq!(stats.num_false_negatives, 0);
+        assert_eq!(stats.num_false_positives, 0);
+        assert_eq!(stats.num_true_positives, 793);
+    }
+
+    #[test]
+    fn test_und_image_with_alpha() {
+        let image_under_consideration =
+            image::open("data/images/analytic-aa/und-logo-aa.png").unwrap();
+        let ground_truth_image = image::open("data/images/no-aa/und-logo-noaa.png").unwrap();
+
+        // Detect ground truth antialiasing
+        let result = detect_antialiased_pixels_vysniauskas_rgba8(
+            image_under_consideration,
+            Some(ground_truth_image),
+        );
+        assert!(result.is_ok());
+
+        let unwrapped_result = result.unwrap();
+        let stats_opt = unwrapped_result.statistics;
+        assert!(stats_opt.is_some());
+
+        let stats = stats_opt.unwrap();
+        assert_eq!(unwrapped_result.num_antialiased_pixels, 192);
+        assert_eq!(stats.num_ground_truth_antialiased_pixels, 1163);
+        assert_eq!(stats.num_true_positives, 192);
+        assert_eq!(stats.num_false_positives, 0);
+        assert_eq!(stats.num_false_negatives, 700);
+        let precision_score = calculate_precision_score(&unwrapped_result);
+        let recall_score = calculate_recall_score(&unwrapped_result);
+
+        assert_eq!(precision_score, Some(1.0));
+        assert_eq!(recall_score, Some(0.21524663677130046));
+
+        assert_eq!(
+            calculate_f1_score(precision_score, recall_score),
+            Some(0.3542435424354244)
+        );
+    }
+
+    #[test]
+    fn test_und_image_with_blackbg() {
+        let image_under_consideration =
+            image::open("data/images/analytic-aa/und-logo-blackbg-aa.png").unwrap();
+        let ground_truth_image =
+            image::open("data/images/no-aa/und-logo-blackbg-noaa.png").unwrap();
+
+        // Detect ground truth antialiasing
+        let result = detect_antialiased_pixels_vysniauskas_rgba8(
+            image_under_consideration,
+            Some(ground_truth_image),
+        );
+        assert!(result.is_ok());
+
+        let unwrapped_result = result.unwrap();
+        let stats_opt = unwrapped_result.statistics;
+        assert!(stats_opt.is_some());
+
+        let stats = stats_opt.unwrap();
+        assert_eq!(unwrapped_result.num_antialiased_pixels, 1094);
+        assert_eq!(stats.num_ground_truth_antialiased_pixels, 1163);
+        assert_eq!(stats.num_true_positives, 1094);
+        assert_eq!(stats.num_false_positives, 0);
+        assert_eq!(stats.num_false_negatives, 63);
+
+        let precision_score = calculate_precision_score(&unwrapped_result);
+        let recall_score = calculate_recall_score(&unwrapped_result);
+
+        assert_eq!(precision_score, Some(1.0));
+        assert_eq!(recall_score, Some(0.9455488331892826));
+
+        let f1_score_opt = calculate_f1_score(precision_score, recall_score);
+        assert!(f1_score_opt.is_some());
+
+        let f1_score = f1_score_opt.unwrap();
+        assert!(nearly_equal(f1_score, 0.9720124389, 1e-10));
     }
 }

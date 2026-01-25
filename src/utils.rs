@@ -1,6 +1,6 @@
 //! Generic utility functions for Gridskipper.
 
-use image::{GrayImage, RgbaImage, buffer::ConvertBuffer};
+use image::GrayImage;
 
 use crate::base::PixelNeighbors;
 
@@ -31,14 +31,6 @@ pub fn get_neighbors_respect_image_bounds(
         top: y0 as u32,
         bottom: y2 as u32,
     }
-}
-
-pub fn copy_image_to_grayscale(image: &RgbaImage) -> GrayImage {
-    // Note this isn't _quite_ correct. The color transform in the image crate is not perfect, and the definition of
-    // this function gives a warning that this will be disabled in future releases. We should update this to fix the
-    // problem in the future.
-    let grayscale_image: GrayImage = image.convert();
-    grayscale_image
 }
 
 /// Compute the brightness delta between two pixels in a grayscale image and encode whether the difference is brighter
@@ -111,6 +103,11 @@ pub fn has_at_least_three_equal_adjacent_pixels(image: &GrayImage, x: u32, y: u3
     }
 
     return same_pixel_count > 2;
+}
+
+// Test utility function to compare floating point numbers
+pub fn nearly_equal(a: f64, b: f64, epsilon: f64) -> bool {
+    (a - b).abs() < epsilon
 }
 
 #[cfg(test)]
