@@ -9,6 +9,7 @@
 //! ```
 pub mod base;
 pub mod error;
+pub mod overlay;
 pub mod results;
 pub mod stats;
 pub mod ui;

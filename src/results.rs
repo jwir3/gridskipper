@@ -38,3 +38,9 @@ pub struct AntialiasDetectionResult {
     /// be computed if a raw image (without antialiasing) was provided.
     pub statistics: Option<RawAAStatistics>,
 }
+
+impl AntialiasDetectionResult {
+    pub fn is_antialiased(&self, x: u32, y: u32) -> bool {
+        self.antialiased_pixels.contains(&ImageLocation { x, y })
+    }
+}

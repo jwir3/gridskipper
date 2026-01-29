@@ -14,6 +14,8 @@ pub enum GridSkipperError {
     Io(std::io::Error),
     /// Image error
     Image(image::ImageError),
+    /// An error found during overlay compositing
+    OverlayCompositingError(String),
 }
 
 impl fmt::Display for GridSkipperError {
@@ -24,6 +26,9 @@ impl fmt::Display for GridSkipperError {
             GridSkipperError::ImageProcessing(msg) => write!(f, "Image processing error: {}", msg),
             GridSkipperError::Io(e) => write!(f, "IO error: {}", e),
             GridSkipperError::Image(e) => write!(f, "Image error: {}", e),
+            GridSkipperError::OverlayCompositingError(e) => {
+                write!(f, "Error while compositing overlay: {}", e)
+            }
         }
     }
 }
@@ -71,10 +76,18 @@ mod tests {
         let error5 = GridSkipperError::from(original_error5);
         let error5_display = format!("{}", error5);
 
+        let error6 =
+            GridSkipperError::OverlayCompositingError("image sizes do not match".to_string());
+        let error6_display = format!("{}", error6);
+
         assert_eq!(error1_display, "Image processing error: image incorrect");
         assert_eq!(error2_display, "File not found: invalid file");
         assert_eq!(error3_display, "Both file paths cannot be the same");
         assert_eq!(error4_display, "IO error: something happened");
         assert_eq!(error5_display, "Image error: Memory limit exceeded");
+        assert_eq!(
+            error6_display,
+            "Error while compositing overlay: image sizes do not match"
+        );
     }
 }

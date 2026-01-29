@@ -1,7 +1,7 @@
 //! Basic data structurs for Gridskipper.
 
 /// A structure representing the location, in x and y coordinates, of a pixel in an image.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ImageLocation {
     pub x: u32,
     pub y: u32,
