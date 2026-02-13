@@ -14,8 +14,12 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 colored = "3.1.1"
+env_logger = "0.11.8"
 image = "0.25.9"
+log = "0.4.29"
 tempfile = "3.24.0"
+measure_time = "0.8"
 
 [lints.clippy]
 doc_lazy_continuation = "allow"
+doc_overindented_list_items = "allow"

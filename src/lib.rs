@@ -116,7 +116,6 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
     // Convert the image to grayscale so that we can compare brightness values.
     let grayscale_image: GrayImage = image.grayscale().into();
 
-    if ground_truth_image_opt.is_some() {}
     // Convert ground truth image once outside the loop
     let ground_truth_bytes = ground_truth_image_opt
         .as_ref()

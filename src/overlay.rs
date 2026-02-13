@@ -50,7 +50,7 @@ pub fn generate_antialiased_overlay(
 ///
 /// Returns:
 /// - `Result<DynamicImage, GridSkipperError>`: A result containing the composite image or an error if the dimensions
-///    do not match.
+///   do not match.
 pub fn composite_overlay(
     base_image: RgbaImage,
     overlay_image: RgbaImage,

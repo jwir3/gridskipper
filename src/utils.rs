@@ -1,5 +1,4 @@
 //! Generic utility functions for Gridskipper.
-
 use image::GrayImage;
 
 use crate::base::PixelNeighbors;
@@ -102,7 +101,7 @@ pub fn has_at_least_three_equal_adjacent_pixels(image: &GrayImage, x: u32, y: u3
         }
     }
 
-    return same_pixel_count > 2;
+    same_pixel_count > 2
 }
 
 // Test utility function to compare floating point numbers

@@ -1,2 +1,0 @@
-# Disable the clippy check for overindented doc lines
-doc-lazy-continuation-threshold = 0

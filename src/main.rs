@@ -3,17 +3,27 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use gridskipper::overlay::{composite_overlay, generate_antialiased_overlay};
 use gridskipper::stats::{calculate_f1_score, calculate_precision_score, calculate_recall_score};
 use gridskipper::{
     detect_antialiased_pixels_vysniauskas_rgba8, diff_images, error::GridSkipperError,
 };
+use log::{debug, error, info, warn};
 
 use gridskipper::ui::get_colored_text;
 use image::ImageReader;
+use measure_time::info_time;
+
+const DEFAULT_OUTPUT_DIR: &str = "output";
+const DEFAULT_FILE_STEM: &str = "generated";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about="A command line tool for determining differences between two images.", long_about = None)]
 struct Args {
+    /// Verbose output (-v for WARN, -vv for INFO, -vvv for DEBUG)
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -40,13 +50,15 @@ enum Commands {
         without_aa_path: String,
 
         // The directory for storing the output files
-        #[arg(short, long, default_value = "out")]
+        #[arg(short, long, default_value = DEFAULT_OUTPUT_DIR)]
         output_dir: String,
     },
 }
 
 fn main() {
     let args = Args::parse();
+
+    init_logging(args.verbose);
 
     let result = match args.command {
         Commands::Diff {
@@ -90,24 +102,74 @@ fn handle_detect(
     without_aa_path: &str,
     output_dir: &str,
 ) -> Result<(), GridSkipperError> {
-    let image_without_aa;
-    if !without_aa_path.is_empty() && Path::exists(Path::new(without_aa_path)) {
-        image_without_aa = Some(ImageReader::open(without_aa_path)?.decode()?);
-    } else {
-        image_without_aa = None;
-    }
+    info_time!("Antialiasing detection");
+    let image_without_aa =
+        if !without_aa_path.is_empty() && Path::exists(Path::new(without_aa_path)) {
+            Some(ImageReader::open(without_aa_path)?.decode()?)
+        } else {
+            None
+        };
 
     // Create the output directory, if it doesn't already exist
     fs::create_dir_all(output_dir)?;
 
     // Open the image file
+    info!("Using image with path: {} as base image", &image_path);
     let image = ImageReader::open(image_path)?.decode()?;
 
     // Detect antialiased pixels
-    let detection_result = detect_antialiased_pixels_vysniauskas_rgba8(image, image_without_aa)?;
+    let detection_result =
+        detect_antialiased_pixels_vysniauskas_rgba8(image.clone(), image_without_aa)?;
+
+    // Output the overlay image and the overlay on top of the base image, if we have
+    // detected AA pixels.
+    if detection_result.num_antialiased_pixels > 0 {
+        let overlay_image = generate_antialiased_overlay(
+            image.width(),
+            image.height(),
+            &detection_result,
+            image::Rgba([248, 3, 252, 255]),
+        );
+
+        let base_image_rgba_opt = image.as_rgba8();
+        let base_image_rgba;
+        if let Some(bi_rgba) = base_image_rgba_opt {
+            base_image_rgba = bi_rgba.to_owned();
+        } else {
+            return Err(GridSkipperError::InvalidImageFormat(
+                "Base image is not in RGBA 8-bit format".to_string(),
+            ));
+        }
+
+        let overlay_rgba_opt = overlay_image.as_rgba8();
+        let overlay_rgba;
+        if let Some(ov_rgba) = overlay_rgba_opt {
+            overlay_rgba = ov_rgba.to_owned();
+        } else {
+            return Err(GridSkipperError::InvalidImageFormat(
+                "Overlay image is not in RGBA 8-bit format".to_string(),
+            ));
+        }
+
+        let overlay_on_base = composite_overlay(base_image_rgba, overlay_rgba)?;
+        let file_stem_opt = Path::new(image_path).file_stem();
+        let mut file_stem = DEFAULT_FILE_STEM;
+        if let Some(fs) = file_stem_opt {
+            file_stem = fs.to_str().unwrap()
+        }
+
+        info!("File stem is: {:?}", file_stem_opt);
+
+        let overlay_output_path = Path::new(output_dir).join(format!("{}-overlay.png", file_stem));
+        overlay_image.save(overlay_output_path)?;
+
+        let overlay_on_base_output_path =
+            Path::new(output_dir).join(format!("{}-overlay-on-base.png", file_stem));
+        overlay_on_base.save(overlay_on_base_output_path)?;
+    }
 
     // Print outputs using color
-    println!("");
+    println!();
     println!("{}", "Antialiasing Results".green().bold());
     println!("{}", "====================".bold());
     println!(
@@ -185,6 +247,22 @@ fn handle_detect(
     }
 
     Ok(())
+}
+
+/// Initialize logging based on verbosity level
+fn init_logging(verbose: u8) {
+    let log_level = match verbose {
+        0 => log::LevelFilter::Error, // Default: ERROR
+        1 => log::LevelFilter::Warn,  // -v: WARN
+        2 => log::LevelFilter::Info,  // -vv: INFO
+        _ => log::LevelFilter::Debug, // -vvv or more: DEBUG
+    };
+
+    env_logger::Builder::from_default_env()
+        .filter_level(log_level)
+        .init();
+
+    debug!("Logging initialized at level: {:?}", log_level);
 }
 
 #[cfg(test)]

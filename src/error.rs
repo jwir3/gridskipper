@@ -14,6 +14,8 @@ pub enum GridSkipperError {
     Io(std::io::Error),
     /// Image error
     Image(image::ImageError),
+    /// An error caused by an image being in an invalid format
+    InvalidImageFormat(String),
     /// An error found during overlay compositing
     OverlayCompositingError(String),
 }
@@ -26,6 +28,7 @@ impl fmt::Display for GridSkipperError {
             GridSkipperError::ImageProcessing(msg) => write!(f, "Image processing error: {}", msg),
             GridSkipperError::Io(e) => write!(f, "IO error: {}", e),
             GridSkipperError::Image(e) => write!(f, "Image error: {}", e),
+            GridSkipperError::InvalidImageFormat(msg) => write!(f, "InvalidImageFormat: {}", msg),
             GridSkipperError::OverlayCompositingError(e) => {
                 write!(f, "Error while compositing overlay: {}", e)
             }
