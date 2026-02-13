@@ -1,5 +1,5 @@
 //! Generic utility functions for Gridskipper.
-use image::GrayImage;
+use image::{GrayImage, Pixel, Rgba, RgbaImage};
 
 use crate::base::PixelNeighbors;
 
@@ -58,10 +58,24 @@ pub fn compute_brightness_delta_grayscale(
     delta
 }
 
-/// Check if there are at least three equal adjacent pixels in a grayscale image.
+pub fn compute_brightness_delta_rgba(
+    rgba_image: &RgbaImage,
+    center_x: u32,
+    center_y: u32,
+    adjacent_x: u32,
+    adjacent_y: u32,
+) -> i16 {
+    let center_pixel = rgba_image.get_pixel(center_x, center_y);
+    let center_pixel_intensity = get_intensity_value(center_pixel);
+    let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
+    let adjacent_pixel_intensity = get_intensity_value(adjacent_pixel);
+    adjacent_pixel_intensity as i16 - center_pixel_intensity as i16
+}
+
+/// Check if there are at least three equal adjacent pixels in an RGBA image.
 ///
 /// Parameters:
-/// - `image`: The grayscale image.
+/// - `image`: The image, in RGBA format.
 /// - `x`: The x-coordinate of the center pixel.
 /// - `y`: The y-coordinate of the center pixel.
 ///
@@ -71,7 +85,7 @@ pub fn compute_brightness_delta_grayscale(
 ///
 /// Returns:
 /// - `true` if there are at least three equal adjacent pixels, `false` otherwise.
-pub fn has_at_least_three_equal_adjacent_pixels(image: &GrayImage, x: u32, y: u32) -> bool {
+pub fn has_at_least_three_equal_adjacent_pixels(image: &RgbaImage, x: u32, y: u32) -> bool {
     let pixel_neighbors =
         get_neighbors_respect_image_bounds(x as i32, y as i32, image.width(), image.height());
     // We add a bonus match if we're on an edge to account for a reduced constraint when we don't have enough data.
@@ -88,9 +102,13 @@ pub fn has_at_least_three_equal_adjacent_pixels(image: &GrayImage, x: u32, y: u3
     for ny in pixel_neighbors.top..pixel_neighbors.bottom + 1 {
         for nx in pixel_neighbors.left..pixel_neighbors.right + 1 {
             if nx != x || ny != y {
+                // XXX_jwir3: We lose a bit of fidelity here if we don't convert to intensity when we
+                //            perform the comparison (that is, if we do pixel1 == pixel2).
                 let pixel1 = image.get_pixel(nx, ny);
+                let pixel1_intensity = get_intensity_value(pixel1);
                 let pixel2 = image.get_pixel(x, y);
-                if pixel1 == pixel2 {
+                let pixel2_intensity = get_intensity_value(pixel2);
+                if pixel1_intensity == pixel2_intensity {
                     same_pixel_count += 1;
                 }
 
@@ -109,9 +127,20 @@ pub fn nearly_equal(a: f64, b: f64, epsilon: f64) -> bool {
     (a - b).abs() < epsilon
 }
 
+/// Retrieve an intensity value from a pixel color.
+///
+/// Parameters:
+/// - `pixel_color`: The pixel color to retrieve the intensity value from.
+///
+/// Returns:
+/// - The intensity value of the pixel color.
+pub fn get_intensity_value(pixel_color: &Rgba<u8>) -> u8 {
+    pixel_color.to_luma()[0]
+}
+
 #[cfg(test)]
 pub mod tests {
-    use image::{GrayImage, Luma};
+    use image::{GrayImage, Luma, Rgba, RgbaImage};
 
     use crate::{
         get_neighbors_respect_image_bounds,
@@ -196,10 +225,16 @@ pub mod tests {
 
     #[test]
     fn test_has_at_least_three_equal_adjacent_pixels() {
-        let image = GrayImage::from_pixel(3, 3, Luma([128]));
+        let image = RgbaImage::from_pixel(3, 3, Rgba([128, 128, 128, 255]));
         assert!(has_at_least_three_equal_adjacent_pixels(&image, 1, 1));
 
-        let image = GrayImage::from_vec(3, 3, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+        let mut image = RgbaImage::new(3, 3);
+        for y in 0..3 {
+            for x in 0..3 {
+                let val = (y * 3 + x) as u8;
+                image.put_pixel(x, y, Rgba([val, val, val, 255]));
+            }
+        }
         assert!(!has_at_least_three_equal_adjacent_pixels(&image, 1, 1));
     }
 }

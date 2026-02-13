@@ -19,9 +19,11 @@ use crate::base::{ImageLocation, PixelNeighbors};
 use crate::error::GridSkipperError;
 use crate::results::{AntialiasDetectionResult, DiffResult};
 use crate::stats::RawAAStatistics;
-use crate::utils::{compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels};
-use image::{DynamicImage, GrayImage};
+use crate::utils::has_at_least_three_equal_adjacent_pixels;
+use image::DynamicImage;
 use std::path::Path;
+
+use self::utils::compute_brightness_delta_rgba;
 
 /// Validates that file paths are different and both files exist
 pub fn validate_file_paths(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
@@ -114,7 +116,7 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
     let bytes = rgba_image.as_raw();
 
     // Convert the image to grayscale so that we can compare brightness values.
-    let grayscale_image: GrayImage = image.grayscale().into();
+    // let grayscale_image: GrayImage = image.grayscale().into();
 
     // Convert ground truth image once outside the loop
     let ground_truth_bytes = ground_truth_image_opt
@@ -185,8 +187,8 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
                     }
 
                     // Calculate the brightness difference between the current pixel and center pixel.
-                    // This assumes that the image is grayscale and that the pixel data is originally in RGBA format.
-                    let delta = compute_brightness_delta_grayscale(&grayscale_image, x, y, nx, ny);
+                    // This assumes that the image is in RGBA format.
+                    let delta = compute_brightness_delta_rgba(&rgba_image, x, y, nx, ny);
 
                     if delta == 0 {
                         zeroes += 1;
@@ -228,8 +230,8 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
             // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
             // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
             // local brightness landscape).
-            if has_at_least_three_equal_adjacent_pixels(&grayscale_image, min_x, min_y)
-                || has_at_least_three_equal_adjacent_pixels(&grayscale_image, max_x, max_y)
+            if has_at_least_three_equal_adjacent_pixels(&rgba_image, min_x, min_y)
+                || has_at_least_three_equal_adjacent_pixels(&rgba_image, max_x, max_y)
             {
                 result.antialiased_pixels.push(ImageLocation { x, y });
                 result.num_antialiased_pixels += 1;

@@ -8,7 +8,7 @@ use gridskipper::stats::{calculate_f1_score, calculate_precision_score, calculat
 use gridskipper::{
     detect_antialiased_pixels_vysniauskas_rgba8, diff_images, error::GridSkipperError,
 };
-use log::{debug, error, info, warn};
+use log::{debug, info};
 
 use gridskipper::ui::get_colored_text;
 use image::ImageReader;
