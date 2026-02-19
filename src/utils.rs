@@ -2,6 +2,7 @@
 use image::{GrayImage, Pixel, Rgba, RgbaImage};
 
 use crate::base::PixelNeighbors;
+use crate::color::CieLabPixel;
 
 /// Retrieve the indices of neighboring pixels in an image, given a center pixel. Respects image boundaries so that
 /// the indices are within the image dimensions.
@@ -54,8 +55,7 @@ pub fn compute_brightness_delta_grayscale(
 ) -> i16 {
     let center_pixel = grayscale_image.get_pixel(center_x, center_y);
     let adjacent_pixel = grayscale_image.get_pixel(adjacent_x, adjacent_y);
-    let delta = adjacent_pixel[0] as i16 - center_pixel[0] as i16;
-    delta
+    adjacent_pixel[0] as i16 - center_pixel[0] as i16
 }
 
 pub fn compute_brightness_delta_rgba(
@@ -70,6 +70,21 @@ pub fn compute_brightness_delta_rgba(
     let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
     let adjacent_pixel_intensity = get_intensity_value(adjacent_pixel);
     adjacent_pixel_intensity as i16 - center_pixel_intensity as i16
+}
+
+pub fn compute_brightness_delta_lab(
+    rgba_image: &RgbaImage,
+    center_x: u32,
+    center_y: u32,
+    adjacent_x: u32,
+    adjacent_y: u32,
+) -> f64 {
+    let center_pixel = rgba_image.get_pixel(center_x, center_y);
+    let center_pixel_intensity = CieLabPixel::from(*center_pixel).l;
+    let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
+    let adjacent_pixel_intensity = CieLabPixel::from(*adjacent_pixel).l;
+
+    adjacent_pixel_intensity - center_pixel_intensity
 }
 
 /// Check if there are at least three equal adjacent pixels in an RGBA image.
@@ -140,12 +155,16 @@ pub fn get_intensity_value(pixel_color: &Rgba<u8>) -> u8 {
 
 #[cfg(test)]
 pub mod tests {
+    use approx::assert_abs_diff_eq;
     use image::{GrayImage, Luma, Rgba, RgbaImage};
 
     use crate::{
+        color::CieLabPixel,
         get_neighbors_respect_image_bounds,
         utils::{compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels},
     };
+
+    use super::compute_brightness_delta_lab;
 
     #[test]
     fn test_get_neighbors_respect_image_bounds_3x3_center() {
@@ -175,6 +194,24 @@ pub mod tests {
         assert_eq!(neighbors.bottom, 2);
         assert_eq!(neighbors.left, 1);
         assert_eq!(neighbors.right, 2);
+    }
+
+    #[test]
+    fn test_compute_brightness_delta_cielab() {
+        let mut rgba_image = RgbaImage::new(3, 3);
+        for i in 0..2 {
+            for j in 0..2 {
+                rgba_image.put_pixel(i, j, Rgba([255, 0, 0, 255]));
+            }
+        }
+
+        rgba_image.put_pixel(1, 1, Rgba([0, 255, 0, 255]));
+
+        assert_abs_diff_eq!(
+            -34.49,
+            compute_brightness_delta_lab(&rgba_image, 1, 1, 0, 0),
+            epsilon = 0.01
+        );
     }
 
     #[test]

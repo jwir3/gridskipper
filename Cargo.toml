@@ -19,6 +19,10 @@ image = "0.25.9"
 log = "0.4.29"
 tempfile = "3.24.0"
 measure_time = "0.8"
+ndarray = "0.17.2"
+
+[dev-dependencies]
+approx = "0.5"
 
 [lints.clippy]
 doc_lazy_continuation = "allow"
