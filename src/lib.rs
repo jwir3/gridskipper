@@ -24,7 +24,7 @@ use crate::utils::has_at_least_three_equal_adjacent_pixels;
 use image::DynamicImage;
 use std::path::Path;
 
-use self::utils::compute_brightness_delta_rgba;
+use self::utils::{compute_brightness_delta_alpha, compute_brightness_delta_rgba};
 
 /// Validates that file paths are different and both files exist
 pub fn validate_file_paths(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
@@ -190,6 +190,167 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
                     // Calculate the brightness difference between the current pixel and center pixel.
                     // This assumes that the image is in RGBA format.
                     let delta = compute_brightness_delta_rgba(&rgba_image, x, y, nx, ny);
+
+                    if delta == 0 {
+                        zeroes += 1;
+                        if zeroes > 2 {
+                            // This is not an antialiased pixel by the Vyšniauskas method.
+                            if considered_pixel_is_aa_in_gt {
+                                // We have a false negative because the pixel is actually antialiased in the
+                                // ground truth image.
+                                statistics.num_false_negatives += 1;
+                            }
+
+                            continue 'center_pixel;
+                        }
+                    } else if delta < min {
+                        // We want to remember the darkest pixel.
+                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
+                        // or darkest pixel?
+                        min = delta;
+                        min_x = nx;
+                        min_y = ny;
+                    } else if delta > max {
+                        // We also want to remember the brightest pixel.
+                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
+                        // or darkest pixel?
+                        max = delta;
+                        max_x = nx;
+                        max_y = ny;
+                    }
+                }
+            }
+
+            // A pixel cannot be anti-aliasing via this method if there are not adjacent pixels that
+            // are both darker and brighter than this center pixel.
+            if min == 0 || max == 0 {
+                continue 'center_pixel;
+            }
+
+            // Finally, we want to check if the darkest or brightest pixel has 3+ equal siblings. If it does,
+            // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
+            // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
+            // local brightness landscape).
+            if has_at_least_three_equal_adjacent_pixels(&rgba_image, min_x, min_y)
+                || has_at_least_three_equal_adjacent_pixels(&rgba_image, max_x, max_y)
+            {
+                result.antialiased_pixels.push(ImageLocation { x, y });
+                result.num_antialiased_pixels += 1;
+
+                if considered_pixel_is_aa_in_gt {
+                    statistics.num_true_positives += 1;
+                } else {
+                    // We have a false positive because the pixel is NOT antialiased in the ground truth image.
+                    statistics.num_false_positives += 1;
+                }
+            }
+        }
+    }
+
+    if let Some(ref _gt_bytes) = ground_truth_bytes {
+        result.statistics = Some(statistics);
+    } else {
+        result.statistics = None
+    }
+
+    Ok(result)
+}
+
+/// Detect antialiased pixels using Vyšniauskas' algorithm (2009) using alpha values of pixels as intensity.
+///
+/// The original algorithm is described in the paper:
+///   - Antialiased pixel and intensity slope detector, V. Vyšniauskas (2009).
+///
+/// This implementation takes a full color image, encoded as 32-bit (8 bit color channels) RGBA, and directly uses the
+/// alpha channel as intensity values. It then applies the algorithm described in Vyšniauskas' paper and first
+/// implemented in `pixelmatch`, to detect antialiased pixels. These pixels are then returned as an `AntialiasDetectionResult`.
+///
+/// Parameters:
+/// - `image`: The input image to detect antialiased pixels in. Should be in RGBA format.
+/// - `ground_truth_image_opt`: An optional ground truth image to compare against, for inclusion of statistics, such as
+///   the number of false-positives and false-negatives.
+///
+/// Returns:
+/// - `Result<AntialiasDetectionResult, GridSkipperError>`: The result of the antialias detection.
+pub fn detect_antialiased_pixels_vysniauskas_alpha(
+    image: DynamicImage,
+    ground_truth_image_opt: Option<DynamicImage>,
+) -> Result<AntialiasDetectionResult, GridSkipperError> {
+    // Convert to RGBA first to ensure 4 bytes per pixel
+    let rgba_image = image.to_rgba8();
+    let bytes = rgba_image.as_raw();
+
+    // Convert ground truth image once outside the loop
+    let ground_truth_bytes = ground_truth_image_opt
+        .as_ref()
+        .map(|img| img.to_rgba8().into_raw());
+
+    let mut statistics = RawAAStatistics::default();
+    let mut result = AntialiasDetectionResult::default();
+
+    for y in 0..image.height() {
+        'center_pixel: for x in 0..image.width() {
+            let pixel_idx: usize = ((image.width() * y + x) << 2) as usize;
+            let mut considered_pixel_is_aa_in_gt = false;
+
+            result.number_pixels += 1;
+
+            // if we have a ground truth image, and the pixels are different
+            // at this location between the ground truth and the image under consideration
+            // then we have an AA pixel in the image under consideration
+            if let Some(ref gt_bytes) = ground_truth_bytes {
+                let ground_truth_pixel_res: Result<[u8; 4], _> =
+                    gt_bytes[pixel_idx..pixel_idx + 4].try_into();
+                if let Ok(ground_truth_pixel) = ground_truth_pixel_res {
+                    let pixel: [u8; 4] = bytes[pixel_idx..pixel_idx + 4].try_into().unwrap();
+                    if ground_truth_pixel != pixel {
+                        // This is an AA pixel in the image under consideration
+                        statistics.num_ground_truth_antialiased_pixels += 1;
+                        considered_pixel_is_aa_in_gt = true;
+                    }
+                } else {
+                    return Err(GridSkipperError::ImageProcessing(
+                        "Failed to extract pixel data for ground truth image".to_string(),
+                    ));
+                }
+            }
+
+            let neighbors = get_neighbors_respect_image_bounds(
+                x as i32,
+                y as i32,
+                image.width(),
+                image.height(),
+            );
+
+            // TODO_jwir3: This is questionable. What if we are the top left corner or bottom right corner? Should we
+            //             still consider the pixel as having only a single zero since we can't evaluate its neighbors?
+            let mut zeroes = if x == neighbors.left
+                || x == neighbors.right
+                || y == neighbors.top
+                || y == neighbors.bottom
+            {
+                1
+            } else {
+                0
+            };
+
+            let mut min = 0;
+            let mut max = 0;
+            let mut min_x = 0;
+            let mut max_x = 0;
+            let mut min_y = 0;
+            let mut max_y = 0;
+
+            // We now iterate through 8 adjacent pixels, looking for differences in brightness.
+            for nx in neighbors.left..neighbors.right + 1 {
+                for ny in neighbors.top..neighbors.bottom + 1 {
+                    if nx == x && ny == y {
+                        continue;
+                    }
+
+                    // Calculate the brightness difference between the current pixel and center pixel.
+                    // This assumes that the image is in RGBA format.
+                    let delta = compute_brightness_delta_alpha(&rgba_image, x, y, nx, ny);
 
                     if delta == 0 {
                         zeroes += 1;

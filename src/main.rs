@@ -3,8 +3,10 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use gridskipper::detect_antialiased_pixels_vysniauskas_alpha;
 use gridskipper::overlay::{composite_overlay, generate_antialiased_overlay};
 use gridskipper::stats::{calculate_f1_score, calculate_precision_score, calculate_recall_score};
+use gridskipper::utils::check_image_has_transparency;
 use gridskipper::{
     detect_antialiased_pixels_vysniauskas_rgba8, diff_images, error::GridSkipperError,
 };
@@ -118,11 +120,16 @@ fn handle_detect(
     let image = ImageReader::open(image_path)?.decode()?;
 
     // Detect antialiased pixels
-    let detection_result =
-        detect_antialiased_pixels_vysniauskas_rgba8(image.clone(), image_without_aa)?;
+    // If there are any pixels that have non-opaque alpha, then let's use alpha as our intensity
+    let detection_result = if check_image_has_transparency(&image) {
+        detect_antialiased_pixels_vysniauskas_alpha(image.clone(), image_without_aa)?
+    } else {
+        detect_antialiased_pixels_vysniauskas_rgba8(image.clone(), image_without_aa)?
+    };
 
     // Output the overlay image and the overlay on top of the base image, if we have
     // detected AA pixels.
+    // XXX_jwir3: This isn't working as expected, likely because of Gamma.
     if detection_result.num_antialiased_pixels > 0 {
         let overlay_image = generate_antialiased_overlay(
             image.width(),

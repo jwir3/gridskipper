@@ -1,4 +1,4 @@
-use image::Rgba;
+use image::{Rgb, RgbImage, Rgba, RgbaImage};
 use ndarray::arr2;
 
 // This assumes a D65 white point. Note that the rows sum to the D65 white point:
@@ -120,13 +120,42 @@ impl From<Rgba<u8>> for CieLabPixel {
     }
 }
 
+// TODO_jwir3: We really need to take gamma into account. If we read from a PNG file, there will likely be an implied
+//             gamma, but we _might_ be able to get it from the image metadata, as well. ("gAMA" metadata flag)
+pub fn convert_rgba_to_rgb_by_alpha_blend_no_gamma(
+    image: &RgbaImage,
+    bg_color: Rgb<u8>,
+) -> RgbImage {
+    let mut rgb_image = RgbImage::new(image.width(), image.height());
+    for j in 0..image.height() {
+        for i in 0..image.width() {
+            let pixel = image.get_pixel(i, j);
+            let red = pixel.0[0];
+            let green = pixel.0[1];
+            let blue = pixel.0[2];
+            let alpha = pixel.0[3] as f64 / 255.0;
+
+            let bg_contrib_red = bg_color.0[0] as f64 * (1.0 - alpha);
+            let bg_contrib_green = bg_color.0[1] as f64 * (1.0 - alpha);
+            let bg_contrib_blue = bg_color.0[2] as f64 * (1.0 - alpha);
+
+            let result_red: u8 = ((red as f64 * alpha) + bg_contrib_red).round() as u8;
+            let result_green: u8 = ((green as f64 * alpha) + bg_contrib_green).round() as u8;
+            let result_blue: u8 = ((blue as f64 * alpha) + bg_contrib_blue).round() as u8;
+
+            rgb_image.put_pixel(i, j, Rgb([result_red, result_green, result_blue]));
+        }
+    }
+
+    rgb_image
+}
+
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
-    use image::Rgba;
+    use image::{Rgb, RgbImage, Rgba, RgbaImage};
 
-    use super::CieLabPixel;
-
+    use crate::color::{CieLabPixel, convert_rgba_to_rgb_by_alpha_blend_no_gamma};
     #[test]
     pub fn test_cielabpixel_from_rgba() {
         let rgba_pixel: Rgba<u8> = Rgba([255, 0, 0, 255]);
@@ -135,5 +164,45 @@ mod tests {
         assert_abs_diff_eq!(cielab_pixel.l, 53.24, epsilon = 0.01);
         assert_abs_diff_eq!(cielab_pixel.a, 80.09, epsilon = 0.01);
         assert_abs_diff_eq!(cielab_pixel.b, 67.20, epsilon = 0.01);
+    }
+
+    #[test]
+    pub fn test_convert_rgba_to_rgb_by_alpha_blend_no_gamma() {
+        let cols = 3;
+        let rows = 3;
+
+        let mut rgba_image = RgbaImage::new(rows, cols);
+        rgba_image.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+        rgba_image.put_pixel(0, 1, Rgba([255, 0, 0, 192]));
+        rgba_image.put_pixel(0, 2, Rgba([255, 0, 0, 128]));
+
+        rgba_image.put_pixel(1, 0, Rgba([255, 0, 0, 192]));
+        rgba_image.put_pixel(1, 1, Rgba([255, 0, 0, 128]));
+        rgba_image.put_pixel(1, 2, Rgba([255, 0, 0, 64]));
+
+        rgba_image.put_pixel(2, 0, Rgba([255, 0, 0, 128]));
+        rgba_image.put_pixel(2, 1, Rgba([255, 0, 0, 64]));
+        rgba_image.put_pixel(2, 2, Rgba([255, 0, 0, 0]));
+
+        let mut expected_image = RgbImage::new(rows, cols);
+        expected_image.put_pixel(0, 0, Rgb([255, 0, 0]));
+        expected_image.put_pixel(0, 1, Rgb([255, 63, 63]));
+        expected_image.put_pixel(0, 2, Rgb([255, 127, 127]));
+
+        expected_image.put_pixel(1, 0, Rgb([255, 63, 63]));
+        expected_image.put_pixel(1, 1, Rgb([255, 127, 127]));
+        expected_image.put_pixel(1, 2, Rgb([255, 191, 191]));
+
+        expected_image.put_pixel(2, 0, Rgb([255, 127, 127]));
+        expected_image.put_pixel(2, 1, Rgb([255, 191, 191]));
+        expected_image.put_pixel(2, 2, Rgb([255, 255, 255]));
+
+        let result_image =
+            convert_rgba_to_rgb_by_alpha_blend_no_gamma(&rgba_image, Rgb([255, 255, 255]));
+        for j in 0..cols {
+            for i in 0..rows {
+                assert_eq!(result_image.get_pixel(i, j), expected_image.get_pixel(i, j));
+            }
+        }
     }
 }

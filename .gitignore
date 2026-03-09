@@ -18,3 +18,4 @@ output
 
 *.profdata
 coverage/**
+**/.DS_Store

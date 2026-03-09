@@ -1,5 +1,5 @@
 //! Generic utility functions for Gridskipper.
-use image::{GrayImage, Pixel, Rgba, RgbaImage};
+use image::{DynamicImage, GrayImage, Pixel, Rgba, RgbaImage};
 
 use crate::base::PixelNeighbors;
 use crate::color::CieLabPixel;
@@ -66,9 +66,23 @@ pub fn compute_brightness_delta_rgba(
     adjacent_y: u32,
 ) -> i16 {
     let center_pixel = rgba_image.get_pixel(center_x, center_y);
-    let center_pixel_intensity = get_intensity_value(center_pixel);
+    let center_pixel_intensity = get_intensity_value_luma(center_pixel);
     let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
-    let adjacent_pixel_intensity = get_intensity_value(adjacent_pixel);
+    let adjacent_pixel_intensity = get_intensity_value_luma(adjacent_pixel);
+    adjacent_pixel_intensity as i16 - center_pixel_intensity as i16
+}
+
+pub fn compute_brightness_delta_alpha(
+    rgba_image: &RgbaImage,
+    center_x: u32,
+    center_y: u32,
+    adjacent_x: u32,
+    adjacent_y: u32,
+) -> i16 {
+    let center_pixel = rgba_image.get_pixel(center_x, center_y);
+    let center_pixel_intensity = get_intensity_value_alpha(center_pixel);
+    let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
+    let adjacent_pixel_intensity = get_intensity_value_alpha(adjacent_pixel);
     adjacent_pixel_intensity as i16 - center_pixel_intensity as i16
 }
 
@@ -120,9 +134,9 @@ pub fn has_at_least_three_equal_adjacent_pixels(image: &RgbaImage, x: u32, y: u3
                 // XXX_jwir3: We lose a bit of fidelity here if we don't convert to intensity when we
                 //            perform the comparison (that is, if we do pixel1 == pixel2).
                 let pixel1 = image.get_pixel(nx, ny);
-                let pixel1_intensity = get_intensity_value(pixel1);
+                let pixel1_intensity = get_intensity_value_luma(pixel1);
                 let pixel2 = image.get_pixel(x, y);
-                let pixel2_intensity = get_intensity_value(pixel2);
+                let pixel2_intensity = get_intensity_value_luma(pixel2);
                 if pixel1_intensity == pixel2_intensity {
                     same_pixel_count += 1;
                 }
@@ -142,26 +156,69 @@ pub fn nearly_equal(a: f64, b: f64, epsilon: f64) -> bool {
     (a - b).abs() < epsilon
 }
 
-/// Retrieve an intensity value from a pixel color.
+/// Retrieve an intensity value from a pixel color using Luma (grayscale value) as intensity.
 ///
 /// Parameters:
 /// - `pixel_color`: The pixel color to retrieve the intensity value from.
 ///
 /// Returns:
 /// - The intensity value of the pixel color.
-pub fn get_intensity_value(pixel_color: &Rgba<u8>) -> u8 {
+pub fn get_intensity_value_luma(pixel_color: &Rgba<u8>) -> u8 {
     pixel_color.to_luma()[0]
+}
+
+/// Retrieve an intensity value from a pixel color using Alpha (transparency value) as intensity.
+///
+/// Parameters:
+/// - `pixel_color`: The pixel color to retrieve the intensity value from.
+///
+/// Returns:
+/// - The intensity value of the pixel color.
+pub fn get_intensity_value_alpha(pixel_color: &Rgba<u8>) -> u8 {
+    pixel_color.0[3]
+}
+
+/// Check if an image has at least one pixel that is semi-transparent.
+///
+/// Parameters:
+/// - `image`: A reference to the `DynamicImage` which should be checked for transparency.
+///
+/// Returns:
+/// - `true`, if at least one pixel has an alpha channel that corresponds to something less than `255`;
+///   `false`, otherwise.
+pub fn check_image_has_transparency(image: &DynamicImage) -> bool {
+    let rgba_image = match image.as_rgba8() {
+        Some(img) => img,
+        None => return false,
+    };
+
+    let width = rgba_image.width();
+    let height = rgba_image.height();
+
+    for j in 0..height {
+        for i in 0..width {
+            let pixel = rgba_image.get_pixel(i, j);
+
+            if pixel.0[3] < 255 {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]
 pub mod tests {
     use approx::assert_abs_diff_eq;
-    use image::{GrayImage, Luma, Rgba, RgbaImage};
+    use image::{GrayImage, ImageReader, Luma, Rgba, RgbaImage};
 
     use crate::{
-        color::CieLabPixel,
         get_neighbors_respect_image_bounds,
-        utils::{compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels},
+        utils::{
+            check_image_has_transparency, compute_brightness_delta_alpha,
+            compute_brightness_delta_grayscale, has_at_least_three_equal_adjacent_pixels,
+        },
     };
 
     use super::compute_brightness_delta_lab;
@@ -258,6 +315,59 @@ pub mod tests {
 
         let brightness_delta9 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 2, 2);
         assert_eq!(brightness_delta9, 104);
+    }
+
+    #[test]
+    fn test_compute_brightness_delta_alpha() {
+        let alpha_image = ImageReader::open("data/images/red-example.png")
+            .expect("Failed to open image")
+            .decode()
+            .expect("Failed to decode image")
+            .to_rgba8();
+
+        let brightness_delta1 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 0, 0);
+        assert_eq!(brightness_delta1, 127);
+
+        let brightness_delta2 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 1, 0);
+        assert_eq!(brightness_delta2, 63);
+
+        let brightness_delta3 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 2, 0);
+        assert_eq!(brightness_delta3, 0);
+
+        let brightness_delta4 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 0, 1);
+        assert_eq!(brightness_delta4, 63);
+
+        let brightness_delta5 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 1, 1);
+        assert_eq!(brightness_delta5, 0);
+
+        let brightness_delta6 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 2, 1);
+        assert_eq!(brightness_delta6, -64);
+
+        let brightness_delta7 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 0, 2);
+        assert_eq!(brightness_delta7, 0);
+
+        let brightness_delta8 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 1, 2);
+        assert_eq!(brightness_delta8, -64);
+
+        let brightness_delta9 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 2, 2);
+        assert_eq!(brightness_delta9, -128);
+    }
+
+    #[test]
+    fn test_check_image_has_transparency() {
+        let image = ImageReader::open("data/images/red-example.png")
+            .expect("Failed to open image")
+            .decode()
+            .expect("Failed to decode image");
+
+        assert!(check_image_has_transparency(&image));
+
+        let image = ImageReader::open("data/images/analytic-aa/und-logo-blackbg-aa.png")
+            .expect("Failed to open image")
+            .decode()
+            .expect("Failed to decode image");
+
+        assert!(!check_image_has_transparency(&image));
     }
 
     #[test]
