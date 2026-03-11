@@ -1,5 +1,5 @@
 //! Generic utility functions for Gridskipper.
-use image::{DynamicImage, GrayImage, Pixel, Rgba, RgbaImage};
+use image::{DynamicImage, Pixel, Rgba, RgbaImage};
 
 use crate::base::PixelNeighbors;
 use crate::color::CieLabPixel;
@@ -37,7 +37,7 @@ pub fn get_neighbors_respect_image_bounds(
 /// or darker based on the sign.
 ///
 /// Parameters:
-/// - `grayscale_image`: The grayscale image.
+/// - `image`: The image. This is assumed to be a grayscale image, though we pass a `DynamicImage` for generality.
 /// - `center_x`: The x-coordinate of the center pixel.
 /// - `center_y`: The y-coordinate of the center pixel.
 /// - `adjacent_x`: The x-coordinate of the adjacent pixel.
@@ -47,24 +47,26 @@ pub fn get_neighbors_respect_image_bounds(
 /// - The brightness delta between the two pixels, with the adjacent pixel being brighter encoded as a positive value
 /// and the adjacent pixel being darker encoded as a negative value.
 pub fn compute_brightness_delta_grayscale(
-    grayscale_image: &GrayImage,
+    image: &DynamicImage,
     center_x: u32,
     center_y: u32,
     adjacent_x: u32,
     adjacent_y: u32,
 ) -> i16 {
+    let grayscale_image = image.to_luma8();
     let center_pixel = grayscale_image.get_pixel(center_x, center_y);
     let adjacent_pixel = grayscale_image.get_pixel(adjacent_x, adjacent_y);
     adjacent_pixel[0] as i16 - center_pixel[0] as i16
 }
 
 pub fn compute_brightness_delta_rgba(
-    rgba_image: &RgbaImage,
+    image: &DynamicImage,
     center_x: u32,
     center_y: u32,
     adjacent_x: u32,
     adjacent_y: u32,
 ) -> i16 {
+    let rgba_image = image.to_rgba8();
     let center_pixel = rgba_image.get_pixel(center_x, center_y);
     let center_pixel_intensity = get_intensity_value_luma(center_pixel);
     let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
@@ -73,12 +75,13 @@ pub fn compute_brightness_delta_rgba(
 }
 
 pub fn compute_brightness_delta_alpha(
-    rgba_image: &RgbaImage,
+    image: &DynamicImage,
     center_x: u32,
     center_y: u32,
     adjacent_x: u32,
     adjacent_y: u32,
 ) -> i16 {
+    let rgba_image = image.to_rgba8();
     let center_pixel = rgba_image.get_pixel(center_x, center_y);
     let center_pixel_intensity = get_intensity_value_alpha(center_pixel);
     let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
@@ -87,12 +90,13 @@ pub fn compute_brightness_delta_alpha(
 }
 
 pub fn compute_brightness_delta_lab(
-    rgba_image: &RgbaImage,
+    image: &DynamicImage,
     center_x: u32,
     center_y: u32,
     adjacent_x: u32,
     adjacent_y: u32,
 ) -> f64 {
+    let rgba_image = image.to_rgba8();
     let center_pixel = rgba_image.get_pixel(center_x, center_y);
     let center_pixel_intensity = CieLabPixel::from(*center_pixel).l;
     let adjacent_pixel = rgba_image.get_pixel(adjacent_x, adjacent_y);
@@ -109,8 +113,8 @@ pub fn compute_brightness_delta_lab(
 /// - `y`: The y-coordinate of the center pixel.
 ///
 /// TODO_jwir3:
-/// We really should make this less specific to grayscale images. It should actually detect whether the
-///_luma_ is the same for the adjacent pixels.
+/// We really should make this less specific to grayscale images. It currently assumes luma equality, but we need to
+/// generalize this to compare using any intensity metric.
 ///
 /// Returns:
 /// - `true` if there are at least three equal adjacent pixels, `false` otherwise.
@@ -211,7 +215,7 @@ pub fn check_image_has_transparency(image: &DynamicImage) -> bool {
 #[cfg(test)]
 pub mod tests {
     use approx::assert_abs_diff_eq;
-    use image::{GrayImage, ImageReader, Luma, Rgba, RgbaImage};
+    use image::{DynamicImage, GrayImage, ImageReader, Luma, Rgba, RgbaImage};
 
     use crate::{
         get_neighbors_respect_image_bounds,
@@ -264,9 +268,11 @@ pub mod tests {
 
         rgba_image.put_pixel(1, 1, Rgba([0, 255, 0, 255]));
 
+        let dyn_image: DynamicImage = rgba_image.into();
+
         assert_abs_diff_eq!(
             -34.49,
-            compute_brightness_delta_lab(&rgba_image, 1, 1, 0, 0),
+            compute_brightness_delta_lab(&dyn_image, 1, 1, 0, 0),
             epsilon = 0.01
         );
     }
@@ -289,31 +295,33 @@ pub mod tests {
         grayscale_image.put_pixel(1, 2, Luma([141]));
         grayscale_image.put_pixel(2, 2, Luma([232]));
 
-        let brightness_delta1 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 0, 0);
+        let dyn_image: DynamicImage = grayscale_image.into();
+
+        let brightness_delta1 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 0, 0);
         assert_eq!(brightness_delta1, -78);
 
-        let brightness_delta2 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 1, 0);
+        let brightness_delta2 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 1, 0);
         assert_eq!(brightness_delta2, -68);
 
-        let brightness_delta3 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 2, 0);
+        let brightness_delta3 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 2, 0);
         assert_eq!(brightness_delta3, 94);
 
-        let brightness_delta4 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 0, 1);
+        let brightness_delta4 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 0, 1);
         assert_eq!(brightness_delta4, -78);
 
-        let brightness_delta5 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 1, 1);
+        let brightness_delta5 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 1, 1);
         assert_eq!(brightness_delta5, 0);
 
-        let brightness_delta6 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 2, 1);
+        let brightness_delta6 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 2, 1);
         assert_eq!(brightness_delta6, 104);
 
-        let brightness_delta7 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 0, 2);
+        let brightness_delta7 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 0, 2);
         assert_eq!(brightness_delta7, -78);
 
-        let brightness_delta8 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 1, 2);
+        let brightness_delta8 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 1, 2);
         assert_eq!(brightness_delta8, 13);
 
-        let brightness_delta9 = compute_brightness_delta_grayscale(&grayscale_image, 1, 1, 2, 2);
+        let brightness_delta9 = compute_brightness_delta_grayscale(&dyn_image, 1, 1, 2, 2);
         assert_eq!(brightness_delta9, 104);
     }
 
@@ -325,31 +333,33 @@ pub mod tests {
             .expect("Failed to decode image")
             .to_rgba8();
 
-        let brightness_delta1 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 0, 0);
+        let dyn_image: DynamicImage = alpha_image.into();
+
+        let brightness_delta1 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 0, 0);
         assert_eq!(brightness_delta1, 127);
 
-        let brightness_delta2 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 1, 0);
+        let brightness_delta2 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 1, 0);
         assert_eq!(brightness_delta2, 63);
 
-        let brightness_delta3 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 2, 0);
+        let brightness_delta3 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 2, 0);
         assert_eq!(brightness_delta3, 0);
 
-        let brightness_delta4 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 0, 1);
+        let brightness_delta4 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 0, 1);
         assert_eq!(brightness_delta4, 63);
 
-        let brightness_delta5 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 1, 1);
+        let brightness_delta5 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 1, 1);
         assert_eq!(brightness_delta5, 0);
 
-        let brightness_delta6 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 2, 1);
+        let brightness_delta6 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 2, 1);
         assert_eq!(brightness_delta6, -64);
 
-        let brightness_delta7 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 0, 2);
+        let brightness_delta7 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 0, 2);
         assert_eq!(brightness_delta7, 0);
 
-        let brightness_delta8 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 1, 2);
+        let brightness_delta8 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 1, 2);
         assert_eq!(brightness_delta8, -64);
 
-        let brightness_delta9 = compute_brightness_delta_alpha(&alpha_image, 1, 1, 2, 2);
+        let brightness_delta9 = compute_brightness_delta_alpha(&dyn_image, 1, 1, 2, 2);
         assert_eq!(brightness_delta9, -128);
     }
 

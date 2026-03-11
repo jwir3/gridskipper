@@ -2,17 +2,15 @@ use std::fs;
 use std::path::Path;
 
 use clap::{Parser, Subcommand};
-use colored::Colorize;
 use gridskipper::detect_antialiased_pixels_vysniauskas_alpha;
 use gridskipper::overlay::{composite_overlay, generate_antialiased_overlay};
-use gridskipper::stats::{calculate_f1_score, calculate_precision_score, calculate_recall_score};
+use gridskipper::results::AntialiasDetectionResult;
 use gridskipper::utils::check_image_has_transparency;
 use gridskipper::{
     detect_antialiased_pixels_vysniauskas_rgba8, diff_images, error::GridSkipperError,
 };
 use log::{debug, info};
 
-use gridskipper::ui::get_colored_text;
 use image::ImageReader;
 use measure_time::info_time;
 
@@ -62,7 +60,7 @@ fn main() {
 
     init_logging(args.verbose);
 
-    let result = match args.command {
+    let result: Result<(), GridSkipperError> = match args.command {
         Commands::Diff {
             left_side,
             right_side,
@@ -71,7 +69,14 @@ fn main() {
             image_path,
             without_aa_path,
             output_dir,
-        } => handle_detect(&image_path, &without_aa_path, &output_dir),
+        } => {
+            let aa_result = handle_detect(&image_path, &without_aa_path, &output_dir, true);
+            if aa_result.is_ok() {
+                Ok(())
+            } else {
+                Err(aa_result.err().unwrap())
+            }
+        }
     };
 
     if let Err(e) = result {
@@ -103,7 +108,8 @@ fn handle_detect(
     image_path: &str,
     without_aa_path: &str,
     output_dir: &str,
-) -> Result<(), GridSkipperError> {
+    print_results: bool,
+) -> Result<AntialiasDetectionResult, GridSkipperError> {
     info_time!("Antialiasing detection");
     let image_without_aa =
         if !without_aa_path.is_empty() && Path::exists(Path::new(without_aa_path)) {
@@ -175,85 +181,12 @@ fn handle_detect(
         overlay_on_base.save(overlay_on_base_output_path)?;
     }
 
-    // Print outputs using color
-    println!();
-    println!("{}", "Antialiasing Results".green().bold());
-    println!("{}", "====================".bold());
-    println!(
-        "{} {}",
-        "Total Pixels:".bold(),
-        detection_result.number_pixels.to_string().bold()
-    );
-
-    println!(
-        "{} {}",
-        "Detected Antialiased Pixels:".bold(),
-        detection_result
-            .num_antialiased_pixels
-            .to_string()
-            .green()
-            .bold()
-    );
-
-    let stats_opt = detection_result.statistics;
-    if let Some(stats) = stats_opt {
-        println!(
-            "{} {}",
-            "Ground Truth Antialiased Pixels:".bold(),
-            stats
-                .num_ground_truth_antialiased_pixels
-                .to_string()
-                .green()
-                .bold()
-        );
-
-        println!(
-            "{} {}",
-            "True Positives:".bold(),
-            stats.num_true_positives.to_string().green().bold()
-        );
-
-        println!(
-            "{} {}",
-            "False Positives:".bold(),
-            stats.num_false_positives.to_string().green().bold()
-        );
-
-        println!(
-            "{} {}",
-            "False Negatives:".bold(),
-            stats.num_false_negatives.to_string().green().bold()
-        );
-
-        let precision_score_opt = calculate_precision_score(&detection_result);
-        if let Some(precision_score) = precision_score_opt {
-            println!(
-                "{} {}",
-                "Precision Score:".bold(),
-                get_colored_text(precision_score, 0.95, 0.9)
-            );
-        }
-
-        let recall_score_opt = calculate_recall_score(&detection_result);
-        if let Some(recall_score) = recall_score_opt {
-            println!(
-                "{} {}",
-                "Recall Score:".bold(),
-                get_colored_text(recall_score, 0.95, 0.9)
-            );
-        }
-
-        let f1_score_opt = calculate_f1_score(precision_score_opt, recall_score_opt);
-        if let Some(f1_score) = f1_score_opt {
-            println!(
-                "{} {}",
-                "F1 Score:".bold(),
-                get_colored_text(f1_score, 0.95, 0.9),
-            );
-        }
+    if print_results {
+        println!(" ");
+        println!("{}", detection_result);
     }
 
-    Ok(())
+    Ok(detection_result)
 }
 
 /// Initialize logging based on verbosity level
@@ -277,6 +210,7 @@ pub mod tests {
     use std::path::Path;
 
     use gridskipper::error::GridSkipperError;
+    use gridskipper::results::AntialiasDetectionResult;
     use tempfile::TempDir;
 
     use crate::handle_detect;
@@ -288,7 +222,7 @@ pub mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
-        let result = handle_detect(image_path, "", output_dir);
+        let result = handle_detect(image_path, "", output_dir, false);
 
         assert!(result.is_ok());
         assert!(Path::new(output_dir).exists());
@@ -302,7 +236,7 @@ pub mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
-        let result = handle_detect(image_path, ground_truth_path, output_dir);
+        let result = handle_detect(image_path, ground_truth_path, output_dir, false);
 
         assert!(result.is_ok());
         assert!(Path::new(output_dir).exists());
@@ -314,7 +248,7 @@ pub mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
-        let result = handle_detect(image_path, "", output_dir);
+        let result = handle_detect(image_path, "", output_dir, false);
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -345,7 +279,7 @@ pub mod tests {
         let output_dir = temp_dir.path().to_str().unwrap();
 
         // Should still work - function should handle missing ground truth gracefully
-        let result = handle_detect(image_path, ground_truth_path, output_dir);
+        let result = handle_detect(image_path, ground_truth_path, output_dir, false);
 
         assert!(result.is_ok());
         assert!(Path::new(output_dir).exists());
@@ -361,7 +295,7 @@ pub mod tests {
         // Verify directory doesn't exist initially
         assert!(!output_dir.exists());
 
-        let result = handle_detect(image_path, "", output_dir_str);
+        let result = handle_detect(image_path, "", output_dir_str, false);
 
         assert!(result.is_ok());
         assert!(output_dir.exists());
@@ -374,7 +308,7 @@ pub mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
-        let result = handle_detect(image_path, "", output_dir);
+        let result = handle_detect(image_path, "", output_dir, false);
 
         assert!(result.is_ok());
     }
@@ -388,13 +322,13 @@ pub mod tests {
         let output_dir = temp_dir.path().to_str().unwrap();
 
         // Capture the result to ensure it completes successfully
-        let result = handle_detect(image_path, "", output_dir);
+        let result = handle_detect(image_path, "", output_dir, false);
 
         assert!(result.is_ok());
 
         // Test with ground truth for statistical analysis
         let ground_truth_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
-        let result_with_stats = handle_detect(image_path, ground_truth_path, output_dir);
+        let result_with_stats = handle_detect(image_path, ground_truth_path, output_dir, false);
 
         assert!(result_with_stats.is_ok());
     }
@@ -405,7 +339,7 @@ pub mod tests {
         // Try to create output directory in a path that should fail (like root)
         let invalid_output_dir = "/invalid/path/that/should/not/exist";
 
-        let result = handle_detect(image_path, "", invalid_output_dir);
+        let result = handle_detect(image_path, "", invalid_output_dir, false);
 
         // Should return an IO error wrapped in GridSkipperError
         assert!(result.is_err());
@@ -415,5 +349,21 @@ pub mod tests {
             }
             other => panic!("Expected IO error, got: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_handle_detect_with_alpha_image() {
+        let image_path = "data/images/analytic-aa/und-logo-aa.png";
+        let ground_truth_path = "data/images/no-aa/und-logo-noAa.png";
+        let temp_dir = TempDir::new().unwrap();
+        let output_dir = temp_dir.path().to_str().unwrap();
+
+        let result = handle_detect(image_path, ground_truth_path, output_dir, false);
+
+        assert!(result.is_ok());
+
+        let detection_result: AntialiasDetectionResult = result.unwrap();
+        assert_eq!(detection_result.number_pixels, 11448);
+        assert_eq!(detection_result.antialiased_pixels.len(), 1126);
     }
 }

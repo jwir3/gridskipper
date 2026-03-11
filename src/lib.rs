@@ -26,6 +26,52 @@ use std::path::Path;
 
 use self::utils::{compute_brightness_delta_alpha, compute_brightness_delta_rgba};
 
+pub struct NeighborhoodIntensity {
+    min_intensity: i16,
+    max_intensity: i16,
+    min_x_location: u32,
+    max_x_location: u32,
+    min_y_location: u32,
+    max_y_location: u32,
+    zeros: u32,
+
+    /// Whether or not a determination on this pixel has been made and the result is known.
+    determination_made: bool,
+}
+
+impl NeighborhoodIntensity {
+    pub fn new() -> Self {
+        Self {
+            min_intensity: 0,
+            max_intensity: 0,
+            min_x_location: 0,
+            max_x_location: 0,
+            min_y_location: 0,
+            max_y_location: 0,
+            zeros: 0,
+            determination_made: false,
+        }
+    }
+
+    pub fn increment_zeros(&mut self) {
+        self.zeros += 1;
+    }
+
+    pub fn update(&mut self, intensity: i16, x: u32, y: u32) {
+        if intensity < self.min_intensity {
+            self.min_intensity = intensity;
+            self.min_x_location = x;
+            self.min_y_location = y;
+        }
+
+        if intensity > self.max_intensity {
+            self.max_intensity = intensity;
+            self.max_x_location = x;
+            self.max_y_location = y;
+        }
+    }
+}
+
 /// Validates that file paths are different and both files exist
 pub fn validate_file_paths(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
     // Check if both file paths are the same
@@ -161,69 +207,22 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
                 image.height(),
             );
 
-            // TODO_jwir3: This is questionable. What if we are the top left corner or bottom right corner? Should we
-            //             still consider the pixel as having only a single zero since we can't evaluate its neighbors?
-            let mut zeroes = if x == neighbors.left
-                || x == neighbors.right
-                || y == neighbors.top
-                || y == neighbors.bottom
-            {
-                1
-            } else {
-                0
-            };
-
-            let mut min = 0;
-            let mut max = 0;
-            let mut min_x = 0;
-            let mut max_x = 0;
-            let mut min_y = 0;
-            let mut max_y = 0;
-
-            // We now iterate through 8 adjacent pixels, looking for differences in brightness.
-            for nx in neighbors.left..neighbors.right + 1 {
-                for ny in neighbors.top..neighbors.bottom + 1 {
-                    if nx == x && ny == y {
-                        continue;
-                    }
-
-                    // Calculate the brightness difference between the current pixel and center pixel.
-                    // This assumes that the image is in RGBA format.
-                    let delta = compute_brightness_delta_rgba(&rgba_image, x, y, nx, ny);
-
-                    if delta == 0 {
-                        zeroes += 1;
-                        if zeroes > 2 {
-                            // This is not an antialiased pixel by the Vyšniauskas method.
-                            if considered_pixel_is_aa_in_gt {
-                                // We have a false negative because the pixel is actually antialiased in the
-                                // ground truth image.
-                                statistics.num_false_negatives += 1;
-                            }
-
-                            continue 'center_pixel;
-                        }
-                    } else if delta < min {
-                        // We want to remember the darkest pixel.
-                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
-                        // or darkest pixel?
-                        min = delta;
-                        min_x = nx;
-                        min_y = ny;
-                    } else if delta > max {
-                        // We also want to remember the brightest pixel.
-                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
-                        // or darkest pixel?
-                        max = delta;
-                        max_x = nx;
-                        max_y = ny;
-                    }
-                }
-            }
+            let neighborhood_intensity = get_neighborhood_intensities(
+                &image,
+                x,
+                y,
+                neighbors,
+                considered_pixel_is_aa_in_gt,
+                &mut statistics,
+                compute_brightness_delta_rgba,
+            );
 
             // A pixel cannot be anti-aliasing via this method if there are not adjacent pixels that
             // are both darker and brighter than this center pixel.
-            if min == 0 || max == 0 {
+            if neighborhood_intensity.determination_made
+                || neighborhood_intensity.min_intensity == 0
+                || neighborhood_intensity.max_intensity == 0
+            {
                 continue 'center_pixel;
             }
 
@@ -231,9 +230,15 @@ pub fn detect_antialiased_pixels_vysniauskas_rgba8(
             // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
             // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
             // local brightness landscape).
-            if has_at_least_three_equal_adjacent_pixels(&rgba_image, min_x, min_y)
-                || has_at_least_three_equal_adjacent_pixels(&rgba_image, max_x, max_y)
-            {
+            if has_at_least_three_equal_adjacent_pixels(
+                &rgba_image,
+                neighborhood_intensity.min_x_location,
+                neighborhood_intensity.min_y_location,
+            ) || has_at_least_three_equal_adjacent_pixels(
+                &rgba_image,
+                neighborhood_intensity.max_x_location,
+                neighborhood_intensity.max_y_location,
+            ) {
                 result.antialiased_pixels.push(ImageLocation { x, y });
                 result.num_antialiased_pixels += 1;
 
@@ -322,69 +327,22 @@ pub fn detect_antialiased_pixels_vysniauskas_alpha(
                 image.height(),
             );
 
-            // TODO_jwir3: This is questionable. What if we are the top left corner or bottom right corner? Should we
-            //             still consider the pixel as having only a single zero since we can't evaluate its neighbors?
-            let mut zeroes = if x == neighbors.left
-                || x == neighbors.right
-                || y == neighbors.top
-                || y == neighbors.bottom
-            {
-                1
-            } else {
-                0
-            };
-
-            let mut min = 0;
-            let mut max = 0;
-            let mut min_x = 0;
-            let mut max_x = 0;
-            let mut min_y = 0;
-            let mut max_y = 0;
-
-            // We now iterate through 8 adjacent pixels, looking for differences in brightness.
-            for nx in neighbors.left..neighbors.right + 1 {
-                for ny in neighbors.top..neighbors.bottom + 1 {
-                    if nx == x && ny == y {
-                        continue;
-                    }
-
-                    // Calculate the brightness difference between the current pixel and center pixel.
-                    // This assumes that the image is in RGBA format.
-                    let delta = compute_brightness_delta_alpha(&rgba_image, x, y, nx, ny);
-
-                    if delta == 0 {
-                        zeroes += 1;
-                        if zeroes > 2 {
-                            // This is not an antialiased pixel by the Vyšniauskas method.
-                            if considered_pixel_is_aa_in_gt {
-                                // We have a false negative because the pixel is actually antialiased in the
-                                // ground truth image.
-                                statistics.num_false_negatives += 1;
-                            }
-
-                            continue 'center_pixel;
-                        }
-                    } else if delta < min {
-                        // We want to remember the darkest pixel.
-                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
-                        // or darkest pixel?
-                        min = delta;
-                        min_x = nx;
-                        min_y = ny;
-                    } else if delta > max {
-                        // We also want to remember the brightest pixel.
-                        // XXX_jwir3: What happens if we encounter a pixel that is _tied_ for the brightest pixel
-                        // or darkest pixel?
-                        max = delta;
-                        max_x = nx;
-                        max_y = ny;
-                    }
-                }
-            }
+            let neighborhood_intensity = get_neighborhood_intensities(
+                &image,
+                x,
+                y,
+                neighbors,
+                considered_pixel_is_aa_in_gt,
+                &mut statistics,
+                compute_brightness_delta_alpha,
+            );
 
             // A pixel cannot be anti-aliasing via this method if there are not adjacent pixels that
             // are both darker and brighter than this center pixel.
-            if min == 0 || max == 0 {
+            if neighborhood_intensity.determination_made
+                || neighborhood_intensity.min_intensity == 0
+                || neighborhood_intensity.max_intensity == 0
+            {
                 continue 'center_pixel;
             }
 
@@ -392,9 +350,15 @@ pub fn detect_antialiased_pixels_vysniauskas_alpha(
             // then we know that these are at the top (brightest) or bottom (darkest) of the "brightness
             // landscape", according to Vyšniauskas. (Though, it's not clear if this is meant to be the global or
             // local brightness landscape).
-            if has_at_least_three_equal_adjacent_pixels(&rgba_image, min_x, min_y)
-                || has_at_least_three_equal_adjacent_pixels(&rgba_image, max_x, max_y)
-            {
+            if has_at_least_three_equal_adjacent_pixels(
+                &rgba_image,
+                neighborhood_intensity.min_x_location,
+                neighborhood_intensity.min_y_location,
+            ) || has_at_least_three_equal_adjacent_pixels(
+                &rgba_image,
+                neighborhood_intensity.max_x_location,
+                neighborhood_intensity.max_y_location,
+            ) {
                 result.antialiased_pixels.push(ImageLocation { x, y });
                 result.num_antialiased_pixels += 1;
 
@@ -512,7 +476,7 @@ pub fn detect_antialiased_pixels_vysniauskas_lab(
 
                     // Calculate the brightness difference between the current pixel and center pixel.
                     // This assumes that the image is in RGBA format.
-                    let delta = compute_brightness_delta_rgba(&rgba_image, x, y, nx, ny);
+                    let delta = compute_brightness_delta_rgba(&image, x, y, nx, ny);
 
                     if delta == 0 {
                         zeroes += 1;
@@ -577,6 +541,57 @@ pub fn detect_antialiased_pixels_vysniauskas_lab(
     }
 
     Ok(result)
+}
+
+pub fn get_neighborhood_intensities(
+    image: &DynamicImage,
+    x: u32,
+    y: u32,
+    neighbors: PixelNeighbors,
+    considered_pixel_is_aa_in_gt: bool,
+    statistics: &mut RawAAStatistics,
+    intensity_measurer: fn(&DynamicImage, u32, u32, u32, u32) -> i16,
+) -> NeighborhoodIntensity {
+    let mut neighborhood_intensities = NeighborhoodIntensity::new();
+
+    // TODO_jwir3: This is questionable. What if we are the top left corner or bottom right corner? Should we
+    //             still consider the pixel as having only a single zero since we can't evaluate its neighbors?
+    if x == neighbors.left || x == neighbors.right || y == neighbors.top || y == neighbors.bottom {
+        neighborhood_intensities.increment_zeros();
+    }
+
+    // We now iterate through 8 adjacent pixels, looking for differences in brightness.
+    for nx in neighbors.left..neighbors.right + 1 {
+        for ny in neighbors.top..neighbors.bottom + 1 {
+            if nx == x && ny == y {
+                continue;
+            }
+
+            // Calculate the brightness difference between the current pixel and center pixel.
+            // This assumes that the image is in RGBA format.
+            // let delta = compute_brightness_delta_rgba(&image, x, y, nx, ny);
+            let delta = intensity_measurer(&image, x, y, nx, ny);
+
+            if delta == 0 {
+                neighborhood_intensities.increment_zeros();
+                if neighborhood_intensities.zeros > 2 {
+                    // This is not an antialiased pixel by the Vyšniauskas method.
+                    if considered_pixel_is_aa_in_gt {
+                        // We have a false negative because the pixel is actually antialiased in the
+                        // ground truth image.
+                        statistics.num_false_negatives += 1;
+                    }
+
+                    neighborhood_intensities.determination_made = true;
+                    return neighborhood_intensities;
+                }
+            } else {
+                neighborhood_intensities.update(delta, nx, ny);
+            }
+        }
+    }
+
+    neighborhood_intensities
 }
 
 /// Retrieve the indices of neighboring pixels in an image, given a center pixel. Respects image boundaries so that
