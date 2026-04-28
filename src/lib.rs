@@ -39,17 +39,29 @@ pub struct NeighborhoodIntensity {
     determination_made: bool,
 }
 
+impl Default for NeighborhoodIntensity {
+    fn default() -> Self {
+        Self::new((0, 0), (0, 0), (0, 0), 0, false)
+    }
+}
+
 impl NeighborhoodIntensity {
-    pub fn new() -> Self {
+    pub fn new(
+        intensity: (i16, i16),
+        x_location: (u32, u32),
+        y_location: (u32, u32),
+        zeros: u32,
+        determination_made: bool,
+    ) -> Self {
         Self {
-            min_intensity: 0,
-            max_intensity: 0,
-            min_x_location: 0,
-            max_x_location: 0,
-            min_y_location: 0,
-            max_y_location: 0,
-            zeros: 0,
-            determination_made: false,
+            min_intensity: intensity.0,
+            max_intensity: intensity.1,
+            min_x_location: x_location.0,
+            max_x_location: x_location.1,
+            min_y_location: y_location.0,
+            max_y_location: y_location.1,
+            zeros,
+            determination_made,
         }
     }
 
@@ -550,9 +562,9 @@ pub fn get_neighborhood_intensities(
     neighbors: PixelNeighbors,
     considered_pixel_is_aa_in_gt: bool,
     statistics: &mut RawAAStatistics,
-    intensity_measurer: fn(&DynamicImage, u32, u32, u32, u32) -> i16,
+    intensity_comparison: fn(&DynamicImage, u32, u32, u32, u32) -> i16,
 ) -> NeighborhoodIntensity {
-    let mut neighborhood_intensities = NeighborhoodIntensity::new();
+    let mut neighborhood_intensities = NeighborhoodIntensity::default();
 
     // TODO_jwir3: This is questionable. What if we are the top left corner or bottom right corner? Should we
     //             still consider the pixel as having only a single zero since we can't evaluate its neighbors?
@@ -570,7 +582,7 @@ pub fn get_neighborhood_intensities(
             // Calculate the brightness difference between the current pixel and center pixel.
             // This assumes that the image is in RGBA format.
             // let delta = compute_brightness_delta_rgba(&image, x, y, nx, ny);
-            let delta = intensity_measurer(&image, x, y, nx, ny);
+            let delta = intensity_comparison(image, x, y, nx, ny);
 
             if delta == 0 {
                 neighborhood_intensities.increment_zeros();

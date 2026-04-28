@@ -1,4 +1,4 @@
-use image::{Rgb, RgbImage, Rgba, RgbaImage};
+use image::{Luma, Rgb, RgbImage, Rgba, RgbaImage};
 use ndarray::arr2;
 
 // This assumes a D65 white point. Note that the rows sum to the D65 white point:
@@ -25,9 +25,9 @@ impl CieLabPixel {
 
     fn electro_optical_transfer(color_value: f64) -> f64 {
         if color_value <= 0.04045 {
-            return color_value / 12.92;
+            color_value / 12.92
         } else {
-            return ((color_value + 0.055) / 1.055).powf(2.4);
+            ((color_value + 0.055) / 1.055).powf(2.4)
         }
     }
 
@@ -67,6 +67,10 @@ impl CieLabPixel {
         let b = 200.0 * (fty - ftz);
 
         (l, a, b)
+    }
+
+    pub fn lightness_as_u8(&self) -> u8 {
+        ((self.l / 100.0) * 255.0).round() as u8
     }
 }
 
@@ -120,6 +124,20 @@ impl From<Rgba<u8>> for CieLabPixel {
     }
 }
 
+pub enum PixelType {
+    Alpha(Rgba<u8>),
+    Grayscale(Luma<u8>),
+    Lab(CieLabPixel),
+}
+
+pub fn get_intensity_for(pixel: PixelType) -> i16 {
+    match pixel {
+        PixelType::Grayscale(val) => val.0[0] as i16,
+        PixelType::Lab(val) => val.l.round() as i16,
+        PixelType::Alpha(val) => val.0[3] as i16,
+    }
+}
+
 // TODO_jwir3: We really need to take gamma into account. If we read from a PNG file, there will likely be an implied
 //             gamma, but we _might_ be able to get it from the image metadata, as well. ("gAMA" metadata flag)
 pub fn convert_rgba_to_rgb_by_alpha_blend_no_gamma(
@@ -153,9 +171,11 @@ pub fn convert_rgba_to_rgb_by_alpha_blend_no_gamma(
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
-    use image::{Rgb, RgbImage, Rgba, RgbaImage};
+    use image::{Luma, Rgb, RgbImage, Rgba, RgbaImage};
 
-    use crate::color::{CieLabPixel, convert_rgba_to_rgb_by_alpha_blend_no_gamma};
+    use crate::color::{
+        CieLabPixel, PixelType, convert_rgba_to_rgb_by_alpha_blend_no_gamma, get_intensity_for,
+    };
     #[test]
     pub fn test_cielabpixel_from_rgba() {
         let rgba_pixel: Rgba<u8> = Rgba([255, 0, 0, 255]);
@@ -204,5 +224,38 @@ mod tests {
                 assert_eq!(result_image.get_pixel(i, j), expected_image.get_pixel(i, j));
             }
         }
+    }
+
+    #[test]
+    fn test_lightness_as_u8() {
+        let rgba_pixel: Rgba<u8> = Rgba([255, 0, 0, 255]);
+        let cielab_pixel = CieLabPixel::from(rgba_pixel);
+        let cielab_pixel_black = CieLabPixel::new(0.0, 0.0, 0.0);
+        let cielab_pixel_white = CieLabPixel::new(100.0, 32.4, 55.6);
+
+        assert_eq!(cielab_pixel_black.lightness_as_u8(), 0);
+        assert_eq!(cielab_pixel_white.lightness_as_u8(), 255);
+        assert_eq!(cielab_pixel.lightness_as_u8(), 136);
+    }
+
+    #[test]
+    pub fn test_get_intensity_for_grayscale_pixel() {
+        let val = Luma::<u8>([60]);
+
+        assert_eq!(60, get_intensity_for(PixelType::Grayscale(val)));
+    }
+
+    #[test]
+    pub fn test_get_intensity_for_lab_pixel() {
+        let val = CieLabPixel::new(60.0, 0.0, 0.0);
+
+        assert_eq!(60, get_intensity_for(PixelType::Lab(val)));
+    }
+
+    #[test]
+    pub fn test_get_intensity_for_alpha_pixel() {
+        let val = Rgba::<u8>([3, 165, 38, 60]);
+
+        assert_eq!(60, get_intensity_for(PixelType::Alpha(val)));
     }
 }
