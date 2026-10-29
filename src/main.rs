@@ -3,6 +3,7 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand};
 use gridskipper::detect_antialiased_pixels_vysniauskas_alpha;
+use gridskipper::diff::DiffOptions;
 use gridskipper::overlay::{composite_overlay, generate_antialiased_overlay};
 use gridskipper::results::AntialiasDetectionResult;
 use gridskipper::utils::check_image_has_transparency;
@@ -86,7 +87,7 @@ fn main() {
 }
 
 fn handle_diff(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
-    match diff_images(left_side, right_side) {
+    match diff_images(left_side, right_side, &DiffOptions::default()) {
         Ok(result) => {
             if result.identical {
                 println!("Images are identical");
