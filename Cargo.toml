@@ -20,6 +20,7 @@ log = "0.4.29"
 tempfile = "3.24.0"
 measure_time = "0.8"
 ndarray = "0.17.2"
+thiserror = "2.0.21"
 
 [dev-dependencies]
 approx = "0.5"

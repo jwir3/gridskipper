@@ -1,53 +1,49 @@
-use std::error::Error;
-use std::fmt;
+use thiserror::Error;
 
 /// Custom error type for GridSkipper operations
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum GridSkipperError {
+    /// Error when the byte alignment is not appropriate for u32 integers.
+    #[error("Image byte buffer was not properly aligned for u32")]
+    ByteAlignmentIncorrect,
+
+    /// Error when byte arrays (for fast checking) are incorrect sizes.
+    #[error("Computed byte array is an incorrect size")]
+    ByteArrayIncorrectSize,
+
     /// Error when file does not exist
+    #[error("File not found: {0}")]
     FileNotFound(String),
+
     /// Error when both file paths are identical
+    #[error("Both file paths cannot be the same")]
     IdenticalPaths,
-    /// Error during image processing
-    ImageProcessing(String),
-    /// IO error
-    Io(std::io::Error),
+    
     /// Image error
-    Image(image::ImageError),
+    #[error("Image error: {0}")]
+    Image(#[from] image::ImageError),
+
     /// An error caused by an image being in an invalid format
+    #[error("Image in invalid format: {0}")]
     InvalidImageFormat(String),
+
+    /// Error during image processing
+    #[error("Image processing error: {0}")]
+    ImageProcessing(String),
+
+    #[error("Images have different heights: {0} vs {1}")]
+    ImageSizesDifferentHeight(u32, u32),
+
+    #[error("Images have different widths: {0} vs {1}")]
+    ImageSizesDifferentWidth(u32, u32),
+
+    /// IO error
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
     /// An error found during overlay compositing
+    #[error("Error while compositing overlay: {0}")]
     OverlayCompositingError(String),
-}
-
-impl fmt::Display for GridSkipperError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GridSkipperError::FileNotFound(path) => write!(f, "File not found: {}", path),
-            GridSkipperError::IdenticalPaths => write!(f, "Both file paths cannot be the same"),
-            GridSkipperError::ImageProcessing(msg) => write!(f, "Image processing error: {}", msg),
-            GridSkipperError::Io(e) => write!(f, "IO error: {}", e),
-            GridSkipperError::Image(e) => write!(f, "Image error: {}", e),
-            GridSkipperError::InvalidImageFormat(msg) => write!(f, "InvalidImageFormat: {}", msg),
-            GridSkipperError::OverlayCompositingError(e) => {
-                write!(f, "Error while compositing overlay: {}", e)
-            }
-        }
-    }
-}
-
-impl Error for GridSkipperError {}
-
-impl From<std::io::Error> for GridSkipperError {
-    fn from(error: std::io::Error) -> Self {
-        GridSkipperError::Io(error)
-    }
-}
-
-impl From<image::ImageError> for GridSkipperError {
-    fn from(error: image::ImageError) -> Self {
-        GridSkipperError::Image(error)
-    }
 }
 
 #[cfg(test)]

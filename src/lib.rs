@@ -16,12 +16,14 @@ pub mod results;
 pub mod stats;
 pub mod ui;
 pub mod utils;
+pub mod validate;
 
 use crate::base::{ImageLocation, PixelNeighbors};
 use crate::error::GridSkipperError;
 use crate::results::{AntialiasDetectionResult, DiffResult};
 use crate::stats::RawAAStatistics;
 use crate::utils::has_at_least_three_equal_adjacent_pixels;
+use crate::validate::{validate_file_paths, validate_images_and_metadata};
 use image::DynamicImage;
 use std::path::Path;
 
@@ -73,32 +75,6 @@ impl NeighborhoodIntensity {
     }
 }
 
-/// Validates that file paths are different and both files exist
-pub fn validate_file_paths(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
-    // Check if both file paths are the same
-    // if left_side == right_side {
-    //     return Err(GridSkipperError::IdenticalPaths);
-    // }
-
-    // Check if files exist
-    if !Path::new(left_side).exists() {
-        return Err(GridSkipperError::FileNotFound(left_side.to_string()));
-    }
-
-    if !Path::new(right_side).exists() {
-        return Err(GridSkipperError::FileNotFound(right_side.to_string()));
-    }
-
-    Ok(())
-}
-
-/// Validates that a single file path exists
-pub fn validate_single_file_path(path: &str) -> Result<(), GridSkipperError> {
-    if !Path::new(path).exists() {
-        return Err(GridSkipperError::FileNotFound(path.to_string()));
-    }
-    Ok(())
-}
 
 /// Compare two images for differences
 ///
@@ -135,8 +111,8 @@ pub fn diff_images(left_side: &str, right_side: &str, options: &diff::DiffOption
     // Validate input
     validate_file_paths(left_side, right_side)?;
 
-    // Validate image metadata
-    // let left_image: DynamicImage =  
+    // Validate images and metadata
+    let (left_image, right_image) = validate_images_and_metadata(left_side, right_side)?;
 
     // TODO: Implement actual image comparison logic
     // This is a placeholder implementation
@@ -632,54 +608,6 @@ mod tests {
     use crate::utils::nearly_equal;
 
     use super::*;
-
-    #[test]
-    #[ignore]
-    fn test_validate_file_paths_identical_paths_error() {
-        let result = validate_file_paths("same.png", "same.png");
-        assert!(matches!(result, Err(GridSkipperError::IdenticalPaths)));
-    }
-
-    #[test]
-    fn test_validate_file_paths_one_side_valid() {
-        let result1 = validate_file_paths(
-            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
-            "same.png",
-        );
-
-        let result2 = validate_file_paths(
-            "same.png",
-            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
-        );
-
-        assert!(matches!(result1, Err(GridSkipperError::FileNotFound(_))));
-        assert!(matches!(result2, Err(GridSkipperError::FileNotFound(_))));
-    }
-
-    #[test]
-    fn test_validate_file_paths_both_sides_valid() {
-        let result = validate_file_paths(
-            "data/images/analytic-aa/ghostscript-tiger-aa.png",
-            "data/images/no-aa/ghostscript-tiger-noaa.png",
-        );
-
-        assert!(result.is_ok());
-        // println!("Error: {:?}", result.err());
-        // assert!(false);
-    }
-
-    #[test]
-    fn test_file_not_found_error() {
-        let result = validate_single_file_path("nonexistent.png");
-        assert!(matches!(result, Err(GridSkipperError::FileNotFound(_))));
-    }
-
-    #[test]
-    fn test_validate_single_file_path_exists() {
-        let result =
-            validate_single_file_path("data/images/analytic-aa/lowercase-b-noto-serif-aa.png");
-        assert!(result.is_ok());
-    }
 
     #[test]
     fn test_diff_images_no_difference_default_options() {
