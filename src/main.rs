@@ -217,7 +217,7 @@ pub mod tests {
     #[test]
     fn test_handle_detect_with_valid_image() {
         // Use existing test image
-        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
@@ -231,7 +231,7 @@ pub mod tests {
     fn test_handle_detect_with_ground_truth() {
         // Use both test images for statistical analysis
         let image_path = "data/images/analytic-aa/lowercase-b-noto-serif-aa.png";
-        let ground_truth_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let ground_truth_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
@@ -272,7 +272,7 @@ pub mod tests {
     #[test]
     fn test_handle_detect_with_invalid_ground_truth() {
         // Test with valid image but invalid ground truth path
-        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let ground_truth_path = "nonexistent_ground_truth.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
@@ -286,7 +286,7 @@ pub mod tests {
 
     #[test]
     fn test_handle_detect_creates_output_directory() {
-        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().join("new_output_dir");
         let output_dir_str = output_dir.to_str().unwrap();
@@ -303,7 +303,7 @@ pub mod tests {
     #[test]
     fn test_handle_detect_with_empty_ground_truth_path() {
         // Test that empty string for ground truth is handled correctly
-        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
@@ -316,7 +316,7 @@ pub mod tests {
     fn test_handle_detect_output_messages() {
         // This test verifies that the function executes without panicking
         // and produces the expected console output structure
-        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 
@@ -326,7 +326,7 @@ pub mod tests {
         assert!(result.is_ok());
 
         // Test with ground truth for statistical analysis
-        let ground_truth_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let ground_truth_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         let result_with_stats = handle_detect(image_path, ground_truth_path, output_dir, false);
 
         assert!(result_with_stats.is_ok());
@@ -334,7 +334,7 @@ pub mod tests {
 
     #[test]
     fn test_handle_detect_io_error_handling() {
-        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noAa.png";
+        let image_path = "data/images/no-aa/lowercase-b-noto-serif-noaa.png";
         // Try to create output directory in a path that should fail (like root)
         let invalid_output_dir = "/invalid/path/that/should/not/exist";
 
@@ -353,7 +353,7 @@ pub mod tests {
     #[test]
     fn test_handle_detect_with_alpha_image() {
         let image_path = "data/images/analytic-aa/und-logo-aa.png";
-        let ground_truth_path = "data/images/no-aa/und-logo-noAa.png";
+        let ground_truth_path = "data/images/no-aa/und-logo-noaa.png";
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().to_str().unwrap();
 

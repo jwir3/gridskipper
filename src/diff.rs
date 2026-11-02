@@ -1,8 +1,12 @@
 use image::{DynamicImage, Rgba};
+use log::{error, info};
 
-use crate::{color::OkLabPixel, error::GridSkipperError, results::DiffResult, validate};
+use crate::{base::ImageLocation, color::OkLabPixel, detect_antialiased_pixels_vysniauskas_rgba8, error::GridSkipperError, results::DiffResult, validate};
 
 pub struct DiffOptions {
+    /// Whether or not to ignore antialiased pixels when comparing images. Defaults to `false`.
+    ignoreAntialiased: bool,
+
     /// The threshold of difference that is tolerable.
     ///
     /// "Threshold" is a difficult concept, in practice, to explain to users because it isn't
@@ -33,6 +37,7 @@ pub struct DiffOptions {
 impl Default for DiffOptions {
     fn default() -> Self {
         Self {
+            ignoreAntialiased: false,
             threshold: 0.1f64,
             alpha: 0.1f64,
             aaColor: None,
@@ -100,6 +105,7 @@ pub fn output_diff_image(
     options: &DiffOptions,
 ) {
     let mut diff_image = image::RgbaImage::new(width, height);
+    info!("Outputting diff image to: {:?}", options.diff_image_output_path);
 
     for (i, &delta) in differences.iter().enumerate() {
         let x = (i as u32) % width;
@@ -114,6 +120,7 @@ pub fn output_diff_image(
             }
             1 => options.diffColor,
             -1 => options.diffColor,
+            -2 => options.aaColor.unwrap_or(Rgba([255, 255, 0, 128])),
             _ => unreachable!(),
         };
 
@@ -150,18 +157,41 @@ pub fn compare_images_pixel_by_pixel(
         }
     };
 
+    let left_side_aa_pixels = if options.ignoreAntialiased {
+        match detect_antialiased_pixels_vysniauskas_rgba8(left_side.clone(), None) {
+            Err(e) => {
+                error!("Error occurred detecting antialiased pixels in left image: {}", e);
+                vec![]
+            },
+            Ok(pixels) => {
+                pixels.antialiased_pixels
+            }
+        }
+    } else {
+        vec![]
+    };
+
+    let mut i = 0;
     let differences: Vec<i8> = left_image_rgba8
         .pixels()
         .zip(right_image_rgba8.pixels())
         .map(|(left_pixel, right_pixel)| {
-            let color_delta = color_delta_hybrid_ok_lab(left_pixel, right_pixel, options.threshold);
-            color_delta
+            let return_value = if left_side_aa_pixels.contains(&ImageLocation{
+                x: (i % left_image_rgba8.width()) as u32,
+                y: (i / left_image_rgba8.width()) as u32
+            }) { -2 } else {
+                let color_delta = color_delta_hybrid_ok_lab(left_pixel, right_pixel, options.threshold);
+                color_delta
+            };
+            i += 1;
+
+            return_value
         })
         .collect();
 
-    let diff_count = differences.iter().filter(|&&x| x != 0).count();
-
-    if diff_count > 0 && options.diff_image_output_path.is_some() {
+    let diff_count = differences.iter().filter(|&&x| x != 0 && x != -2).count();
+    let aa_count = differences.iter().filter(|&&x| x == -2).count();
+    if (diff_count > 0 || aa_count > 0) && options.diff_image_output_path.is_some() {
         output_diff_image(left_side.width(), left_side.height(), &differences, options);
     }
 
@@ -313,6 +343,7 @@ mod tests {
     #[test]
     fn test_different_images_small() {
         let diff_options = DiffOptions {
+            ignoreAntialiased: false,
             threshold: 0.1,
             alpha: 0.1,
             aaColor: None,
@@ -347,5 +378,43 @@ mod tests {
 
         // Remove the diff.png image file after the test
         std::fs::remove_file("diff.png").unwrap();
+    }
+
+    #[test]
+    fn test_different_images_only_aa() {
+        let diff_options = DiffOptions {
+            ignoreAntialiased: true,
+            threshold: 0.1,
+            alpha: 0.1,
+            aaColor: Some(image::Rgba([255, 255, 0, 128])),
+            diffColor: image::Rgba([255, 0, 0, 128]),
+            diff_image_output_path: Some("diff-aa.png".to_string()),
+        };
+
+        let result = diff_images(
+            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
+            "data/images/no-aa/lowercase-b-noto-serif-noaa.png",
+            &diff_options,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            DiffResult {
+                identical: true,
+                diff_pixels: 0,
+                diff_percentage: 0.0
+            }
+        );
+
+        // Read the diff image file and check that it is the same as the reference file.
+        let diff_image = image::open("diff-aa.png").unwrap();
+        let expected_diff_image = image::open("data/images/diff/noto_serif_lowercase_b_analyticaa_vs_noaa_aapx_only.png").unwrap();
+
+        assert_eq!(diff_image.dimensions(), expected_diff_image.dimensions());
+        assert_eq!(diff_image.to_rgba8(), expected_diff_image.to_rgba8());
+
+        // Remove the diff.png image file after the test
+        std::fs::remove_file("diff-aa.png").unwrap();
     }
 }
