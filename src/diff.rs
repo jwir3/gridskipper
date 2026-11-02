@@ -26,6 +26,8 @@ pub struct DiffOptions {
     /// between the two images being compared.
     diffColor: Rgba<u8>,
     // diffColorAlternate: Option<Rgba<u8>>,
+
+    diff_image_output_path: Option<String>,
 }
 
 impl Default for DiffOptions {
@@ -35,6 +37,7 @@ impl Default for DiffOptions {
             alpha: 0.1f64,
             aaColor: None,
             diffColor: Rgba([255, 0, 0, 128]),
+            diff_image_output_path: None,
         }
     }
 }
@@ -90,6 +93,38 @@ pub fn color_delta_hybrid_ok_lab(left: &Rgba<u8>, right: &Rgba<u8>, threshold: f
     }
 }
 
+pub fn output_diff_image(
+    width: u32,
+    height: u32,
+    differences: &[i8],
+    options: &DiffOptions,
+) {
+    let mut diff_image = image::RgbaImage::new(width, height);
+
+    for (i, &delta) in differences.iter().enumerate() {
+        let x = (i as u32) % width;
+        let y = (i as u32) / width;
+
+        let pixel = match delta {
+            0 => {
+                // Pixels are similar; draw background as grayscale image blended with white
+                let alpha = options.alpha;
+                let gray_value = ((1.0 - alpha) * 255.0 + alpha * 255.0) as u8;
+                Rgba([gray_value, gray_value, gray_value, 255])
+            }
+            1 => options.diffColor,
+            -1 => options.diffColor,
+            _ => unreachable!(),
+        };
+
+        diff_image.put_pixel(x, y, pixel);
+    }
+
+    if let Some(output_path) = &options.diff_image_output_path {
+        diff_image.save(output_path).unwrap();
+    }
+}
+
 pub fn compare_images_pixel_by_pixel(
     left_side: DynamicImage,
     right_side: DynamicImage,
@@ -125,6 +160,10 @@ pub fn compare_images_pixel_by_pixel(
         .collect();
 
     let diff_count = differences.iter().filter(|&&x| x != 0).count();
+
+    if diff_count > 0 && options.diff_image_output_path.is_some() {
+        output_diff_image(left_side.width(), left_side.height(), &differences, options);
+    }
 
     Ok(DiffResult {
         identical: diff_count == 0,
@@ -194,7 +233,7 @@ mod tests {
         diff::{DiffOptions, diff_images},
         results::DiffResult,
     };
-    use image::{DynamicImage, ImageBuffer, Rgb, RgbaImage};
+    use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb, RgbaImage};
 
     #[test]
     fn test_fast_check_for_identical_images() {
@@ -273,11 +312,20 @@ mod tests {
 
     #[test]
     fn test_different_images_small() {
+        let diff_options = DiffOptions {
+            threshold: 0.1,
+            alpha: 0.1,
+            aaColor: None,
+            diffColor: image::Rgba([255, 0, 0, 128]),
+            diff_image_output_path: Some("diff.png".to_string()),
+        };
+
         let result = diff_images(
             "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
             "data/images/no-aa/lowercase-b-noto-serif-noaa.png",
-            &DiffOptions::default(),
+            &diff_options,
         );
+
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -289,5 +337,15 @@ mod tests {
                                                    // diff_percentage: 2.56,
             }
         );
+
+        // Read the diff image file and check that it is the same as the reference file.
+        let diff_image = image::open("diff.png").unwrap();
+        let expected_diff_image = image::open("data/images/diff/noto_serif_lowercase_b_analyticaa_vs_noaa.png").unwrap();
+
+        assert_eq!(diff_image.dimensions(), expected_diff_image.dimensions());
+        assert_eq!(diff_image.to_rgba8(), expected_diff_image.to_rgba8());
+
+        // Remove the diff.png image file after the test
+        std::fs::remove_file("diff.png").unwrap();
     }
 }
