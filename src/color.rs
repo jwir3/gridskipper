@@ -126,7 +126,7 @@ impl From<Rgba<u8>> for CieLabPixel {
 }
 
 /// A pixel in the OkLab color space.
-/// 
+///
 /// Note: This struct is structurally the same as CieLabPixel, but it represents a different color
 ///       space.
 pub struct OkLabPixel {
@@ -213,7 +213,7 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use image::{Rgb, RgbImage, Rgba, RgbaImage};
 
-    use crate::color::{OkLabPixel, CieLabPixel, convert_rgba_to_rgb_by_alpha_blend_no_gamma};
+    use crate::color::{CieLabPixel, OkLabPixel, convert_rgba_to_rgb_by_alpha_blend_no_gamma};
     #[test]
     pub fn test_cielabpixel_from_rgba() {
         let rgba_pixel: Rgba<u8> = Rgba([255, 0, 0, 255]);
@@ -295,7 +295,7 @@ mod tests {
         assert_abs_diff_eq!(red_oklab.a, 0.224863, epsilon = 1e-4);
         assert_abs_diff_eq!(red_oklab.b, 0.125846, epsilon = 1e-4);
     }
-    
+
     #[test]
     fn test_rgba_to_oklab_blue() {
         let blue_rgba = Rgba([0, 0, 255, 255]);

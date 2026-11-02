@@ -31,26 +31,36 @@ pub fn validate_single_file_path(path: &str) -> Result<(), GridSkipperError> {
     Ok(())
 }
 
-pub fn validate_images_and_metadata(left_side: &str, right_side: &str)
-  -> Result<(DynamicImage, DynamicImage), GridSkipperError> {
+pub fn validate_images_and_metadata(
+    left_side: &str,
+    right_side: &str,
+) -> Result<(DynamicImage, DynamicImage), GridSkipperError> {
     let left_image = image::open(left_side)?;
     let right_image = image::open(right_side)?;
 
     if left_image.width() != right_image.width() {
-        return Err(GridSkipperError::ImageSizesDifferentWidth(left_image.width(), right_image.width()));
+        return Err(GridSkipperError::ImageSizesDifferentWidth(
+            left_image.width(),
+            right_image.width(),
+        ));
     }
-    
+
     if left_image.height() != right_image.height() {
-        return Err(GridSkipperError::ImageSizesDifferentHeight(left_image.height(), right_image.height()));
+        return Err(GridSkipperError::ImageSizesDifferentHeight(
+            left_image.height(),
+            right_image.height(),
+        ));
     }
 
-    return Ok((left_image, right_image))
+    return Ok((left_image, right_image));
 }
-
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::GridSkipperError, validate::{validate_file_paths, validate_images_and_metadata, validate_single_file_path}};
+    use crate::{
+        error::GridSkipperError,
+        validate::{validate_file_paths, validate_images_and_metadata, validate_single_file_path},
+    };
 
     #[test]
     fn test_validate_single_file_path_exists() {
@@ -102,27 +112,32 @@ mod tests {
 
     #[test]
     fn test_validate_image_metadata_incorrect_sizes() {
-        let result
-          = validate_images_and_metadata(
+        let result = validate_images_and_metadata(
             "data/images/analytic-aa/ghostscript-tiger-aa.png",
-            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png");
-        assert!(matches!(result, Err(GridSkipperError::ImageSizesDifferentWidth(733, 123))));
+            "data/images/analytic-aa/lowercase-b-noto-serif-aa.png",
+        );
+        assert!(matches!(
+            result,
+            Err(GridSkipperError::ImageSizesDifferentWidth(733, 123))
+        ));
 
-        let result2
-          = validate_images_and_metadata(
+        let result2 = validate_images_and_metadata(
             "data/images/red-example.png",
-            "data/images/red-example-height-less.png");
-        assert!(matches!(result2, Err(GridSkipperError::ImageSizesDifferentHeight(3, 2))));
+            "data/images/red-example-height-less.png",
+        );
+        assert!(matches!(
+            result2,
+            Err(GridSkipperError::ImageSizesDifferentHeight(3, 2))
+        ));
     }
 
     #[test]
     fn test_validate_images_and_metadata_happy_path() {
-        let result
-          = validate_images_and_metadata(
+        let result = validate_images_and_metadata(
             "data/images/analytic-aa/ghostscript-tiger-aa.png",
-            "data/images/no-aa/ghostscript-tiger-noaa.png");
-        
+            "data/images/no-aa/ghostscript-tiger-noaa.png",
+        );
+
         assert!(result.is_ok());
     }
-
 }

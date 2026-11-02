@@ -18,7 +18,7 @@ pub enum GridSkipperError {
     /// Error when both file paths are identical
     #[error("Both file paths cannot be the same")]
     IdenticalPaths,
-    
+
     /// Image error
     #[error("Image error: {0}")]
     Image(#[from] image::ImageError),
