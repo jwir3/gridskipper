@@ -75,50 +75,6 @@ impl NeighborhoodIntensity {
     }
 }
 
-
-/// Compare two images for differences
-///
-/// # Arguments
-///
-/// * `left_side` - Path to the first image file
-/// * `right_side` - Path to the second image file
-///
-/// # Returns
-///
-/// Returns a `DiffResult` containing information about the differences between the images,
-/// or a `GridSkipperError` if validation fails or image processing encounters an error.
-///
-/// # Example
-///
-/// ```rust
-/// use gridskipper::diff_images;
-/// use gridskipper::diff::DiffOptions;
-///
-/// match diff_images("image1.png", "image2.png", &DiffOptions::default()) {
-///     Ok(result) => {
-///         if result.identical {
-///             println!("Images are identical");
-///         } else {
-///             println!("Found {} different pixels ({}%)",
-///                     result.diff_pixels, result.diff_percentage);
-///         }
-///     },
-///     Err(e) => eprintln!("Error: {}", e),
-/// }
-/// ```
-pub fn diff_images(left_side: &str, right_side: &str, options: &diff::DiffOptions)
-  -> Result<DiffResult, GridSkipperError> {
-    // Validate input
-    validate_file_paths(left_side, right_side)?;
-
-    // Validate images and metadata
-    let (left_image, right_image) = validate_images_and_metadata(left_side, right_side)?;
-
-    // TODO: Implement actual image comparison logic
-    // This is a placeholder implementation
-    Ok(DiffResult::default())
-}
-
 /// Detect antialiased pixels using Vyšniauskas' algorithm (2009) using a naive conversion from RGB to grayscale.
 ///
 /// The original algorithm is described in the paper:
@@ -610,29 +566,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_diff_images_no_difference_default_options() {
-        let diff_result = diff_images(
-            "data/images/diff/baseline-text-shift.png",
-            "data/images/diff/baseline-text-shift.png",
-            &diff::DiffOptions::default());
-
-        assert!(diff_result.is_ok());
-        let diff = diff_result.unwrap();
-
-        assert_eq!(
-            diff,
-            DiffResult {
-                identical: true,
-                diff_percentage: 0.0,
-                diff_pixels: 0
-            }
-        );
-    }
-
-    #[test]
     fn test_lowercase_b_notosans_against_ground_truth() {
         let ground_truth_image =
-            image::open("data/images/no-aa/lowercase-b-noto-serif-noAa.png").unwrap();
+            image::open("data/images/no-aa/lowercase-b-noto-serif-noaa.png").unwrap();
         let image_under_consideration =
             image::open("data/images/analytic-aa/lowercase-b-noto-serif-aa.png").unwrap();
 

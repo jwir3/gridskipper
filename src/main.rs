@@ -3,12 +3,12 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand};
 use gridskipper::detect_antialiased_pixels_vysniauskas_alpha;
-use gridskipper::diff::DiffOptions;
+use gridskipper::diff::{DiffOptions, diff_images};
 use gridskipper::overlay::{composite_overlay, generate_antialiased_overlay};
 use gridskipper::results::AntialiasDetectionResult;
 use gridskipper::utils::check_image_has_transparency;
 use gridskipper::{
-    detect_antialiased_pixels_vysniauskas_rgba8, diff_images, error::GridSkipperError,
+    detect_antialiased_pixels_vysniauskas_rgba8, error::GridSkipperError,
 };
 use log::{debug, info};
 
