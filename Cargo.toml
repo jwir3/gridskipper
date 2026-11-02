@@ -24,6 +24,7 @@ thiserror = "2.0.21"
 
 [dev-dependencies]
 approx = "0.5"
+cargo-llvm-cov = "0.9.1"
 
 [lints.clippy]
 doc_lazy_continuation = "allow"
