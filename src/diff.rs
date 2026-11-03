@@ -5,7 +5,7 @@ use crate::{base::ImageLocation, color::OkLabPixel, detect_antialiased_pixels_vy
 
 pub struct DiffOptions {
     /// Whether or not to ignore antialiased pixels when comparing images. Defaults to `false`.
-    ignoreAntialiased: bool,
+    pub ignore_antialiased: bool,
 
     /// The threshold of difference that is tolerable.
     ///
@@ -13,35 +13,36 @@ pub struct DiffOptions {
     /// intuitive once we get into the Y, Cb, Cr space.
     ///
     /// TODO_jwir3: Explain this a little better.
-    threshold: f64,
+    pub threshold: f64,
 
     /// Opacity of original image in diff output.
     ///
     /// XXX_jwir3: I think this is a little backwards. We should consider removing this option, and,
     ///            instead, make the diff pixel itself have an opacity.
-    alpha: f64,
+    pub alpha: f64,
 
     /// The color, as an Rgba<u8>, to make pixels in the diff output image that are detected to be
     /// pixels shaded as the result of antialiasing. Defaults to `None`, in which case antialiased
     /// pixels will not be shown in the resulting diff image.
-    aaColor: Option<Rgba<u8>>,
+    pub aa_color: Option<Rgba<u8>>,
 
     /// The color, as an Rgba<u8>, to set in the resulting diff image for pixels that are different
     /// between the two images being compared.
-    diffColor: Rgba<u8>,
+    pub diff_color: Rgba<u8>,
     // diffColorAlternate: Option<Rgba<u8>>,
 
-    diff_image_output_path: Option<String>,
+    /// The path to output the diff image to. If `None`, no diff image will be output.
+    pub diff_image_output_path: Option<String>,
 }
 
 impl Default for DiffOptions {
     fn default() -> Self {
         Self {
-            ignoreAntialiased: false,
+            ignore_antialiased: false,
             threshold: 0.1f64,
             alpha: 0.1f64,
-            aaColor: None,
-            diffColor: Rgba([255, 0, 0, 128]),
+            aa_color: None,
+            diff_color: Rgba([255, 0, 0, 128]),
             diff_image_output_path: None,
         }
     }
@@ -118,9 +119,9 @@ pub fn output_diff_image(
                 let gray_value = ((1.0 - alpha) * 255.0 + alpha * 255.0) as u8;
                 Rgba([gray_value, gray_value, gray_value, 255])
             }
-            1 => options.diffColor,
-            -1 => options.diffColor,
-            -2 => options.aaColor.unwrap_or(Rgba([255, 255, 0, 128])),
+            1 => options.diff_color,
+            -1 => options.diff_color,
+            -2 => options.aa_color.unwrap_or(Rgba([255, 255, 0, 128])),
             _ => unreachable!(),
         };
 
@@ -157,7 +158,7 @@ pub fn compare_images_pixel_by_pixel(
         }
     };
 
-    let left_side_aa_pixels = if options.ignoreAntialiased {
+    let left_side_aa_pixels = if options.ignore_antialiased {
         match detect_antialiased_pixels_vysniauskas_rgba8(left_side.clone(), None) {
             Err(e) => {
                 error!("Error occurred detecting antialiased pixels in left image: {}", e);
@@ -343,11 +344,11 @@ mod tests {
     #[test]
     fn test_different_images_small() {
         let diff_options = DiffOptions {
-            ignoreAntialiased: false,
+            ignore_antialiased: false,
             threshold: 0.1,
             alpha: 0.1,
-            aaColor: None,
-            diffColor: image::Rgba([255, 0, 0, 128]),
+            aa_color: None,
+            diff_color: image::Rgba([255, 0, 0, 128]),
             diff_image_output_path: Some("diff.png".to_string()),
         };
 
@@ -383,11 +384,11 @@ mod tests {
     #[test]
     fn test_different_images_only_aa() {
         let diff_options = DiffOptions {
-            ignoreAntialiased: true,
+            ignore_antialiased: true,
             threshold: 0.1,
             alpha: 0.1,
-            aaColor: Some(image::Rgba([255, 255, 0, 128])),
-            diffColor: image::Rgba([255, 0, 0, 128]),
+            aa_color: Some(image::Rgba([255, 255, 0, 128])),
+            diff_color: image::Rgba([255, 0, 0, 128]),
             diff_image_output_path: Some("diff-aa.png".to_string()),
         };
 

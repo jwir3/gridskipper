@@ -37,6 +37,25 @@ enum Commands {
         /// The second image file path to compare. Will throw an error if the file path is identical
         /// to the first image file path.
         right_side: String,
+
+        /// The threshold of difference that is tolerable. This is a value between 0.0 and 1.0,
+        /// where 0.0 means no difference is tolerated, and 1.0 means any difference is tolerated.
+        /// The smaller the threshold, the more sensitive the comparison will be. The default is
+        /// 0.1, which means that a color distance of 10% is considered a difference. Color distance
+        /// is calculated using the HyAB method in the OkLAB color space, which is a perceptually
+        /// uniform color space.
+        threshold: Option<f64>,
+
+        /// Whether to include antialiased pixels when comparing the two images. This is off by
+        /// default, so turning this on will include antialiased pixels in the comparison.
+        #[arg(short, long, default_value_t = false)]
+        include_antialiased_pixels: bool,
+
+        /// The file path to output the diff image to. If not specified, no diff image will be
+        /// output, and the only resulting output will be statistical information about the
+        /// differences printed to the console.
+        #[arg(short, long)]
+        diff_image_output_path: Option<String>,
     },
 
     /// Detect antialiased pixels within an image
@@ -63,7 +82,16 @@ fn main() {
         Commands::Diff {
             left_side,
             right_side,
-        } => handle_diff(&left_side, &right_side),
+            include_antialiased_pixels,
+            threshold,
+            diff_image_output_path,
+        } => handle_diff(
+            &left_side,
+            &right_side,
+            include_antialiased_pixels,
+            threshold,
+            diff_image_output_path,
+        ),
         Commands::Detect {
             image_path,
             without_aa_path,
@@ -84,8 +112,21 @@ fn main() {
     }
 }
 
-fn handle_diff(left_side: &str, right_side: &str) -> Result<(), GridSkipperError> {
-    match diff_images(left_side, right_side, &DiffOptions::default()) {
+fn handle_diff(
+    left_side: &str,
+    right_side: &str,
+    include_antialiased_pixels: bool,
+    threshold: Option<f64>,
+    diff_image_output_path: Option<String>,
+) -> Result<(), GridSkipperError> {
+    let diff_options = DiffOptions {
+        ignore_antialiased: !include_antialiased_pixels,
+        threshold: threshold.unwrap_or(0.1),
+        diff_image_output_path,
+        ..DiffOptions::default()
+    };
+
+    match diff_images(left_side, right_side, &diff_options) {
         Ok(result) => {
             if result.identical {
                 println!("Images are identical");
@@ -94,9 +135,6 @@ fn handle_diff(left_side: &str, right_side: &str) -> Result<(), GridSkipperError
                 println!("  Different pixels: {}", result.diff_pixels);
                 println!("  Difference percentage: {:.2}%", result.diff_percentage);
             }
-            println!(
-                "Note: gridskipper diff functionality is not yet fully implemented. Please check back later."
-            );
             Ok(())
         }
         Err(e) => Err(e),
