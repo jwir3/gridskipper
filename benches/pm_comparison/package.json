@@ -1,0 +1,14 @@
+{
+    "name": "pm_comparison",
+    "version": "1.0.0",
+    "description": "A benchmark for comparing performance of different image diffing methods.",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "pixelmatch": "*"
+    }
+}

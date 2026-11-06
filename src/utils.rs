@@ -1,5 +1,5 @@
 //! Generic utility functions for Gridskipper.
-use image::{DynamicImage, Pixel, Rgba, RgbaImage};
+use image::{DynamicImage, ImageBuffer, Pixel, Rgb, Rgba, RgbaImage};
 
 use crate::base::PixelNeighbors;
 use crate::color::CieLabPixel;
@@ -210,6 +210,19 @@ pub fn check_image_has_transparency(image: &DynamicImage) -> bool {
     }
 
     false
+}
+
+pub fn generate_random_image(max_dim: u32) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+    let random_image = image::ImageBuffer::from_fn(max_dim, max_dim, |_, _| {
+        image::Rgba([
+            rand::random::<u8>(),
+            rand::random::<u8>(),
+            rand::random::<u8>(),
+            255,
+        ])
+    });
+    random_image
+    // random_image.save(args.output.unwrap_or_else(|| "output.png".into())).unwrap();
 }
 
 #[cfg(test)]
